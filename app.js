@@ -10,9 +10,52 @@ function classifyDirections(text = '') {
   const matches = rules.filter(([, expression]) => expression.test(text)).map(([label]) => label);
   return matches.length ? matches : ['Многопрофильная помощь'];
 }
+// Координаты сверены по адресам из исходного каталога. Они нужны только для карты;
+// в карточках не показываются и не заменяют данные, введённые пользователем.
+const MOSCOW_CLINIC_LOCATIONS = {
+  0:{name:'РНИМУ им. Пирогова',address:'ул. Островитянова, 1, стр. 7',lat:55.6333876,lng:37.5403384},
+  1:{name:'НИИ им. Склифосовского',address:'Большая Сухаревская площадь, 3, стр. 1',lat:55.7748042,lng:37.6354793},
+  2:{name:'НМИЦ нейрохирургии им. Бурденко',address:'4-я Тверская-Ямская улица, 16',lat:55.7739338,lng:37.5960538},
+  3:{name:'ММКЦ «Коммунарка»',address:'посёлок Коммунарка, ул. Сосенский Стан, 8',lat:55.5668819,lng:37.4662234},
+  4:{name:'Морозовская ДГКБ',address:'4-й Добрынинский переулок, 1/9',lat:55.7260591,lng:37.6178564},
+  5:{name:'ДГКБ им. Башляевой',address:'ул. Героев Панфиловцев, 28',lat:55.8536571,lng:37.4055616},
+  6:{name:'ДГКБ им. Филатова',address:'Садовая-Кудринская улица, 15, стр. 3',lat:55.7641248,lng:37.5878044},
+  7:{name:'МНКЦ им. Боткина',address:'2-й Боткинский проезд, 5',lat:55.7813799,lng:37.5538823},
+  8:{name:'УКБ №1 Сеченовского университета',address:'Большая Пироговская улица, 6, стр. 1',lat:55.7290569,lng:37.5617613},
+  9:{name:'Клиника урологии им. Фронштейна',address:'Большая Пироговская улица, 2, стр. 1',lat:55.7312084,lng:37.5678286},
+  10:{name:'Клиника Василенко',address:'Большая Пироговская улица, 6, стр. 1',lat:55.7290569,lng:37.5617613},
+  11:{name:'Клиника реабилитации Сеченовского университета',address:'Большая Пироговская улица, 2, стр. 9',lat:55.7312084,lng:37.5678286},
+  12:{name:'УКБ №3 Сеченовского университета',address:'ул. Россолимо, 11, стр. 4',lat:55.7332105,lng:37.5815993},
+  13:{name:'УКБ №4 Сеченовского университета',address:'ул. Россолимо, 11, стр. 4',lat:55.7332105,lng:37.5815993},
+  14:{name:'Сеченовский центр материнства и детства',address:'ул. Доватора, 15, стр. 1',lat:55.7220464,lng:37.5656964},
+  15:{name:'РНЦХ им. Петровского',address:'Абрикосовский переулок, 2',lat:55.7301362,lng:37.5638577},
+  16:{name:'ГКБ №31 им. Савельевой',address:'ул. Лобачевского, 42, стр. 1',lat:55.6695343,lng:37.5010911},
+  17:{name:'ГКБ №67 им. Ворохобова',address:'ул. Саляма Адиля, 2/44',lat:55.7723416,lng:37.4654141},
+  18:{name:'ГКБ им. Юдина',address:'Коломенский проезд, 4',lat:55.6629931,lng:37.6403218},
+  19:{name:'ИКБ №1',address:'Волоколамское шоссе, 63, стр. 2',lat:55.8155879,lng:37.4541201},
+  20:{name:'ФНКЦ ФМБА России',address:'Ореховый бульвар, 28',lat:55.6165122,lng:37.7638750},
+  21:{name:'НМИЦ им. Кулакова',address:'ул. Академика Опарина, 4',lat:55.6442291,lng:37.5004569},
+  22:{name:'МКНЦ им. Логинова',address:'Новогиреевская улица, 1, корп. 1',lat:55.7642097,lng:37.7914276},
+  23:{name:'НМИЦ онкологии им. Блохина',address:'Каширское шоссе, 23',lat:55.6572673,lng:37.6497731},
+  24:{name:'МНИОИ им. Герцена',address:'2-й Боткинский проезд, 3',lat:55.7803579,lng:37.5563777},
+  25:{name:'НМИЦ сердечно-сосудистой хирургии им. Бакулева',address:'Рублёвское шоссе, 135',lat:55.7615828,lng:37.3772754},
+  26:{name:'ГКБ №29 им. Баумана',address:'Госпитальная площадь, 2',lat:55.7673684,lng:37.7040615},
+  27:{name:'Первая Градская больница им. Пирогова',address:'Ленинский проспект, 8, корп. 1',lat:55.715,lng:37.5884},
+  28:{name:'НИКИ педиатрии и детской хирургии им. Вельтищева',address:'Талдомская улица, 2',lat:55.8695098,lng:37.5184286},
+  29:{name:'НМХЦ им. Пирогова',address:'Нижняя Первомайская улица, 70',lat:55.7909939,lng:37.8208335},
+  30:{name:'Институт мозга РЦНН',address:'переулок Обуха, 5, стр. 2',lat:55.7529243,lng:37.6541252},
+  31:{name:'НИИ глазных болезней им. Краснова',address:'ул. Россолимо, 11А',lat:55.7346861,lng:37.5798611},
+  32:{name:'ДГКБ №9 им. Сперанского',address:'Шмитовский проезд, 29',lat:55.7552139,lng:37.5389392},
+  33:{name:'НМИЦ кардиологии им. Чазова',address:'ул. Академика Чазова, 15А',lat:55.7554803,lng:37.3781828},
+  34:{name:'ГКБ им. Буянова',address:'Бакинская улица, 26',lat:55.6178758,lng:37.6541625},
+  35:{name:'ГВВ №2',address:'Волгоградский проспект, 168',lat:55.6900537,lng:37.8126976}
+};
+function normalizeLocationName(value = '') { return value.toLocaleLowerCase('ru').replace(/[«»"№.,]/g, '').replace(/\s+/g, ' ').trim(); }
+function knownLocation(name = '') { return Object.values(MOSCOW_CLINIC_LOCATIONS).find(location => normalizeLocationName(location.name) === normalizeLocationName(name)); }
 function sourceClinic(id, name, services, metro, note, district, x, y) {
   const directions = classifyDirections(services);
-  return { id:`clinic-${id}`, name, type:'clinic', specialty:directions[0], directions, district, metro, price:'', services, note, x, y };
+  const location = MOSCOW_CLINIC_LOCATIONS[id];
+  return { id:`clinic-${id}`, name, type:'clinic', specialty:directions[0], directions, district, metro, price:'', services, note, x, y, address:location?.address || '', lat:location?.lat, lng:location?.lng };
 }
 
 // Снимок первой вкладки каталога от 28.08.2026. Обновляется из CSV через интерфейс.
@@ -70,7 +113,14 @@ let medicalMap = null;
 let markersLayer = null;
 
 function loadRecords() {
-  try { const local = JSON.parse(localStorage.getItem(STORAGE_KEY)); return Array.isArray(local) && local.length ? local : seedRecords; }
+  try {
+    const local = JSON.parse(localStorage.getItem(STORAGE_KEY));
+    if (!Array.isArray(local) || !local.length) return seedRecords;
+    return local.map(record => {
+      const location = knownLocation(record.name);
+      return location && !Number.isFinite(Number(record.lat)) ? { ...record, address:record.address || location.address, lat:location.lat, lng:location.lng } : record;
+    });
+  }
   catch { return seedRecords; }
 }
 function saveRecords() { localStorage.setItem(STORAGE_KEY, JSON.stringify(records)); }
@@ -86,6 +136,7 @@ function matches(record) {
 function currentRecords() { return records.filter(matches); }
 
 function toMapPoint(record) {
+  if (Number.isFinite(Number(record.lat)) && Number.isFinite(Number(record.lng))) return [Number(record.lat), Number(record.lng)];
   const west = 37.28, east = 37.92, north = 55.98, south = 55.54;
   return [north - (Number(record.y) / 100) * (north - south), west + (Number(record.x) / 100) * (east - west)];
 }
@@ -169,7 +220,19 @@ $('#resetFilters').addEventListener('click', () => { filters = {query:'',type:'a
 $('#addRecord').addEventListener('click', openAdd); $('#openSheetDialog').addEventListener('click', () => { els.sheetMessage.textContent=''; $('#sheetUrl').value = localStorage.getItem('medkarta-sheet-url') || ''; els.sheetDialog.showModal(); });
 document.querySelectorAll('[data-close-dialog]').forEach(button => button.addEventListener('click', () => $(`#${button.dataset.closeDialog}`).close()));
 $('#editRecord').addEventListener('click', () => { if (activeId) openEdit(activeId); });
-els.recordForm.addEventListener('submit', event => { event.preventDefault(); const form = new FormData(els.recordForm); const id = form.get('recordId') || `m-${Date.now()}`; const entry = Object.fromEntries(form.entries()); const index=records.findIndex(r=>r.id===id); const placement=index >= 0 ? records[index] : sourcePlacement(`${entry.district || ''} ${entry.metro || ''}`, records.length); entry.id=id; entry.x=Number(placement.x);entry.y=Number(placement.y);entry.directions=classifyDirections(`${entry.specialty} ${entry.services}`); if(index >= 0) records[index]=entry; else records.unshift(entry); saveRecords(); activeId=id; els.recordDialog.close(); renderAll(); showToast(index >= 0 ? 'Карточка сохранена' : 'Карточка добавлена'); });
+els.recordForm.addEventListener('submit', event => {
+  event.preventDefault();
+  const form = new FormData(els.recordForm); const id = form.get('recordId') || `m-${Date.now()}`;
+  const entry = Object.fromEntries(form.entries()); const index = records.findIndex(r => r.id === id);
+  const previous = index >= 0 ? records[index] : null; const location = knownLocation(entry.name);
+  const placement = previous || sourcePlacement(`${entry.district || ''} ${entry.metro || ''}`, records.length);
+  entry.id = id; entry.x = Number(placement.x); entry.y = Number(placement.y);
+  entry.address = previous?.address || location?.address || '';
+  entry.lat = previous?.lat ?? location?.lat; entry.lng = previous?.lng ?? location?.lng;
+  entry.directions = classifyDirections(`${entry.specialty} ${entry.services}`);
+  if (index >= 0) records[index] = entry; else records.unshift(entry);
+  saveRecords(); activeId=id; els.recordDialog.close(); renderAll(); showToast(index >= 0 ? 'Карточка сохранена' : 'Карточка добавлена');
+});
 els.deleteButton.addEventListener('click', () => { const id=$('#recordId').value; records=records.filter(r=>r.id!==id); activeId=null; saveRecords(); els.recordDialog.close(); renderAll(); showToast('Карточка удалена'); });
 $('#closeResults').addEventListener('click', () => { els.resultPanel.classList.add('is-hidden'); $('#listToggle').classList.remove('is-selected'); }); $('#listToggle').addEventListener('click', () => { els.resultPanel.classList.toggle('is-hidden'); $('#listToggle').classList.toggle('is-selected', !els.resultPanel.classList.contains('is-hidden')); });
 $('#locateButton').addEventListener('click', () => { activeId=null; render(); if (medicalMap) medicalMap.setView([55.753, 37.62], 10.4, { animate:true }); showToast('Карта центрирована на Москве'); });
@@ -192,9 +255,10 @@ function optionalNumber(value) { return value === '' || value === undefined ? nu
 function normalizeImported(rows) {
   const validTypes=['doctor','clinic','research'];
   return rows.map((r,index) => {
-    const address=r.address || r['адрес'] || ''; const placement=sourcePlacement(address, index); const services=r.services || r['услуги'] || r['основные направления'] || r.specialty || r['направление'] || '';
-    const directions=classifyDirections(services); const x=optionalNumber(r.x); const y=optionalNumber(r.y); const sourceFormat=[r['возраст'],r['уровень учреждения'],r['формат помощи'],r['экстренная госпитализация']==='Да'?'Экстренная госпитализация':'',r['плановая госпитализация']==='Да'?'Плановая госпитализация':''].filter(Boolean).join(' · ');
-    return { id:r.id || r[''] || `sheet-${Date.now()}-${index}`, name:r.name || r['фио'] || r['название'] || r['краткое название'] || '', type:validTypes.includes((r.type||'').toLowerCase()) ? r.type.toLowerCase() : (r['краткое название'] ? 'clinic' : 'doctor'), specialty:r.specialty || r['направление'] || directions[0], directions, district:r.district || r['район'] || placement.district, metro:r.metro || r['метро'] || extractMetro(address), price:r.price || r['стоимость'] || '', services, note:r.note || r['комментарий'] || r['общий комментарий'] || sourceFormat, x:Number.isFinite(x) ? x : placement.x, y:Number.isFinite(y) ? y : placement.y };
+    const address=r.address || r['адрес'] || ''; const name=r.name || r['фио'] || r['название'] || r['краткое название'] || '';
+    const placement=sourcePlacement(address, index); const location=knownLocation(name); const services=r.services || r['услуги'] || r['основные направления'] || r.specialty || r['направление'] || '';
+    const directions=classifyDirections(services); const x=optionalNumber(r.x); const y=optionalNumber(r.y); const lat=optionalNumber(r.lat || r.latitude); const lng=optionalNumber(r.lng || r.lon || r.longitude); const sourceFormat=[r['возраст'],r['уровень учреждения'],r['формат помощи'],r['экстренная госпитализация']==='Да'?'Экстренная госпитализация':'',r['плановая госпитализация']==='Да'?'Плановая госпитализация':''].filter(Boolean).join(' · ');
+    return { id:r.id || r[''] || `sheet-${Date.now()}-${index}`, name, type:validTypes.includes((r.type||'').toLowerCase()) ? r.type.toLowerCase() : (r['краткое название'] ? 'clinic' : 'doctor'), specialty:r.specialty || r['направление'] || directions[0], directions, district:r.district || r['район'] || placement.district, metro:r.metro || r['метро'] || extractMetro(address), price:r.price || r['стоимость'] || '', services, note:r.note || r['комментарий'] || r['общий комментарий'] || sourceFormat, address, lat:Number.isFinite(lat) ? lat : location?.lat, lng:Number.isFinite(lng) ? lng : location?.lng, x:Number.isFinite(x) ? x : placement.x, y:Number.isFinite(y) ? y : placement.y };
   }).filter(r=>r.name && r.specialty && r.district && r.x>=0 && r.x<=100 && r.y>=0 && r.y<=100);
 }
 els.sheetForm.addEventListener('submit', async event => { event.preventDefault(); const raw=$('#sheetUrl').value; if(!raw){els.sheetMessage.textContent='Вставьте ссылку на опубликованный CSV.';return;} const button=$('#importSheet'); button.disabled=true; button.textContent='Загружаем…'; els.sheetMessage.textContent=''; try { const response=await fetch(googleCsvUrl(raw)); if(!response.ok) throw new Error('Не удалось получить файл'); const imported=normalizeImported(parseCsv(await response.text())); if(!imported.length) throw new Error('Не нашлось подходящих строк. Проверьте названия колонок.'); records=imported; saveRecords(); localStorage.setItem('medkarta-sheet-url',raw); activeId=null; els.sheetDialog.close(); renderAll(); showToast(`Загружено карточек: ${imported.length}`); } catch(error) { els.sheetMessage.textContent=`${error.message}. Убедитесь, что именно лист опубликован как CSV и доступен по ссылке.`; } finally { button.disabled=false; button.textContent='Загрузить данные'; } });
