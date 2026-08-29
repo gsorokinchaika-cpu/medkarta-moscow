@@ -61,11 +61,13 @@ let activeId = null;
 
 const $ = (s) => document.querySelector(s);
 const els = {
-  pins: $('#pinsLayer'), resultList: $('#resultList'), resultCount: $('#resultsCount'), mapCount: $('#mapResultCount'),
+  resultList: $('#resultList'), resultCount: $('#resultsCount'), mapCount: $('#mapResultCount'),
   specialtyFilters: $('#specialtyFilters'), specialtyCount: $('#specialtyCount'), district: $('#districtFilter'),
   search: $('#searchInput'), empty: $('#emptyMapState'), resultPanel: $('#resultsPanel'), detailsDialog: $('#detailsDialog'), detailsTags: $('#detailsTags'), detailsContent: $('#detailsContent'), recordDialog: $('#recordDialog'),
   recordForm: $('#recordForm'), deleteButton: $('#deleteRecord'), toast: $('#toast'), sheetDialog: $('#sheetDialog'), sheetForm: $('#sheetForm'), sheetMessage: $('#sheetMessage')
 };
+let medicalMap = null;
+let markersLayer = null;
 
 function loadRecords() {
   try { const local = JSON.parse(localStorage.getItem(STORAGE_KEY)); return Array.isArray(local) && local.length ? local : seedRecords; }
@@ -83,6 +85,31 @@ function matches(record) {
 }
 function currentRecords() { return records.filter(matches); }
 
+function toMapPoint(record) {
+  const west = 37.28, east = 37.92, north = 55.98, south = 55.54;
+  return [north - (Number(record.y) / 100) * (north - south), west + (Number(record.x) / 100) * (east - west)];
+}
+function markerIcon(record) {
+  return L.divIcon({ className:'medical-map-marker', iconSize:[38, 45], iconAnchor:[19, 43], tooltipAnchor:[0, -38], html:`<span class="leaflet-pin ${record.type} ${activeId === record.id ? 'is-active' : ''}">${icon(record.type)}</span>` });
+}
+function initializeMap() {
+  if (!window.L) return;
+  medicalMap = L.map('leafletMap', { zoomControl:false, minZoom:9, maxZoom:15, preferCanvas:true }).setView([55.753, 37.62], 10.4);
+  L.control.zoom({ position:'bottomright' }).addTo(medicalMap);
+  L.tileLayer('https://tile.openstreetmap.org/{z}/{x}/{y}.png', { maxZoom:19, attribution:'&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a> contributors' }).addTo(medicalMap);
+  markersLayer = L.layerGroup().addTo(medicalMap);
+}
+function renderMapMarkers(list) {
+  if (!markersLayer) return;
+  markersLayer.clearLayers();
+  list.forEach(record => {
+    const marker = L.marker(toMapPoint(record), { icon:markerIcon(record), keyboard:true, title:record.name });
+    marker.bindTooltip(`<strong>${escapeHtml(record.name)}</strong><br>${escapeHtml(getDirections(record).slice(0, 2).join(' · '))}`, { direction:'top', offset:[0, -24], className:'medical-tooltip' });
+    marker.on('click', () => openDetails(record.id));
+    marker.addTo(markersLayer);
+  });
+}
+
 function renderFilterOptions() {
   const specialties = [...new Set(records.flatMap(getDirections).filter(Boolean))].sort((a,b) => a.localeCompare(b, 'ru'));
   filters.specialties = new Set([...filters.specialties].filter(x => specialties.includes(x)));
@@ -98,7 +125,7 @@ function render() {
   els.mapCount.textContent = list.length;
   els.resultCount.textContent = list.length;
   els.empty.hidden = list.length !== 0;
-  els.pins.innerHTML = list.map(r => `<button class="pin ${r.type} ${activeId === r.id ? 'is-active':''}" data-id="${r.id}" style="left:${Number(r.x)}%;top:${Number(r.y)}%" aria-label="${escapeHtml(r.name)}"><span class="pin-shape">${icon(r.type)}</span><span class="pin-label"><strong>${escapeHtml(r.name)}</strong>${escapeHtml(getDirections(r).join(' · '))} · ${escapeHtml(r.district)}</span></button>`).join('');
+  renderMapMarkers(list);
   els.resultList.innerHTML = list.map(r => `<button class="result-card ${activeId === r.id ? 'is-active':''}" data-id="${r.id}"><span class="result-type ${r.type}">${icon(r.type)}</span><span class="result-card-content"><h3>${escapeHtml(r.name)}</h3><p>${escapeHtml(getDirections(r).slice(0, 2).join(' · '))} · ${escapeHtml(r.metro || r.district)}</p><span class="tag">${escapeHtml(typeName(r.type))}</span></span></button>`).join('') || '<div class="no-results">Попробуйте изменить фильтры.</div>';
   document.querySelectorAll('[data-id]').forEach(element => element.addEventListener('click', () => openDetails(element.dataset.id)));
 }
@@ -145,7 +172,7 @@ $('#editRecord').addEventListener('click', () => { if (activeId) openEdit(active
 els.recordForm.addEventListener('submit', event => { event.preventDefault(); const form = new FormData(els.recordForm); const id = form.get('recordId') || `m-${Date.now()}`; const entry = Object.fromEntries(form.entries()); const index=records.findIndex(r=>r.id===id); const placement=index >= 0 ? records[index] : sourcePlacement(`${entry.district || ''} ${entry.metro || ''}`, records.length); entry.id=id; entry.x=Number(placement.x);entry.y=Number(placement.y);entry.directions=classifyDirections(`${entry.specialty} ${entry.services}`); if(index >= 0) records[index]=entry; else records.unshift(entry); saveRecords(); activeId=id; els.recordDialog.close(); renderAll(); showToast(index >= 0 ? 'Карточка сохранена' : 'Карточка добавлена'); });
 els.deleteButton.addEventListener('click', () => { const id=$('#recordId').value; records=records.filter(r=>r.id!==id); activeId=null; saveRecords(); els.recordDialog.close(); renderAll(); showToast('Карточка удалена'); });
 $('#closeResults').addEventListener('click', () => { els.resultPanel.classList.add('is-hidden'); $('#listToggle').classList.remove('is-selected'); }); $('#listToggle').addEventListener('click', () => { els.resultPanel.classList.toggle('is-hidden'); $('#listToggle').classList.toggle('is-selected', !els.resultPanel.classList.contains('is-hidden')); });
-$('#locateButton').addEventListener('click', () => { activeId=null; render(); showToast('Карта центрирована на Москве'); });
+$('#locateButton').addEventListener('click', () => { activeId=null; render(); if (medicalMap) medicalMap.setView([55.753, 37.62], 10.4, { animate:true }); showToast('Карта центрирована на Москве'); });
 $('#openSidebar').addEventListener('click', () => $('#sidebar').classList.add('is-open')); $('#closeSidebar').addEventListener('click', () => $('#sidebar').classList.remove('is-open'));
 document.addEventListener('keydown', event => { if ((event.metaKey || event.ctrlKey) && event.key.toLowerCase()==='k') { event.preventDefault(); els.search.focus(); } });
 
@@ -172,4 +199,5 @@ function normalizeImported(rows) {
 }
 els.sheetForm.addEventListener('submit', async event => { event.preventDefault(); const raw=$('#sheetUrl').value; if(!raw){els.sheetMessage.textContent='Вставьте ссылку на опубликованный CSV.';return;} const button=$('#importSheet'); button.disabled=true; button.textContent='Загружаем…'; els.sheetMessage.textContent=''; try { const response=await fetch(googleCsvUrl(raw)); if(!response.ok) throw new Error('Не удалось получить файл'); const imported=normalizeImported(parseCsv(await response.text())); if(!imported.length) throw new Error('Не нашлось подходящих строк. Проверьте названия колонок.'); records=imported; saveRecords(); localStorage.setItem('medkarta-sheet-url',raw); activeId=null; els.sheetDialog.close(); renderAll(); showToast(`Загружено карточек: ${imported.length}`); } catch(error) { els.sheetMessage.textContent=`${error.message}. Убедитесь, что именно лист опубликован как CSV и доступен по ссылке.`; } finally { button.disabled=false; button.textContent='Загрузить данные'; } });
 
+initializeMap();
 renderAll();
