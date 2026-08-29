@@ -1,0 +1,151 @@
+<!doctype html>
+<html lang="ru">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <meta name="theme-color" content="#f6f8f5" />
+    <title>МедКарта — врачи и услуги Москвы</title>
+    <link rel="preconnect" href="https://fonts.googleapis.com" />
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+    <link href="https://fonts.googleapis.com/css2?family=DM+Mono:wght@400;500&family=Manrope:wght@400;500;600;700;800&family=Playfair+Display:ital,wght@0,600;0,700;1,600&display=swap" rel="stylesheet" />
+    <link rel="stylesheet" href="./styles.css" />
+  </head>
+  <body>
+    <main class="app-shell">
+      <aside class="sidebar" id="sidebar">
+        <div class="brand-row">
+          <a class="brand" href="#" aria-label="МедКарта — на главную">
+            <span class="brand-mark"><i></i><i></i><i></i></span>
+            <span>Мед<span>Карта</span></span>
+          </a>
+          <button class="icon-button sidebar-close" id="closeSidebar" aria-label="Закрыть панель">×</button>
+        </div>
+
+        <section class="intro">
+          <p class="eyebrow">Ассистенту · Москва</p>
+          <h1>Найдите нужную<br /><em>медицинскую</em> помощь</h1>
+          <p>Фильтруйте специалистов, клиники и исследования. Карта служит ориентиром.</p>
+          <a class="source-link" href="https://docs.google.com/spreadsheets/d/1w55BqwgeNZTaxhsiq6tz3-UG9n92TwBu/edit?gid=723850286#gid=723850286" target="_blank" rel="noreferrer">Источник: ваша таблица ↗</a>
+        </section>
+
+        <label class="search-wrap" for="searchInput">
+          <svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="11" cy="11" r="6.5"></circle><path d="m16 16 4.5 4.5"></path></svg>
+          <input id="searchInput" type="search" placeholder="Врач, услуга или клиника" autocomplete="off" />
+          <kbd>⌘ K</kbd>
+        </label>
+
+        <section class="filters" aria-label="Фильтры">
+          <div class="filter-heading"><span>Что ищем</span><button class="reset-link" id="resetFilters">Сбросить</button></div>
+          <div class="segmented" id="typeFilters" aria-label="Тип записи">
+            <button class="is-active" data-type="all">Все</button>
+            <button data-type="doctor">Врачи</button>
+            <button data-type="clinic">Клиники</button>
+            <button data-type="research">Исследования</button>
+          </div>
+
+          <div class="filter-heading filter-heading-spaced"><span>Направление</span><span class="filter-count" id="specialtyCount">0</span></div>
+          <div class="check-list" id="specialtyFilters"></div>
+
+          <div class="filter-heading filter-heading-spaced"><span>Район</span></div>
+          <div class="select-wrap">
+            <select id="districtFilter" aria-label="Выберите район">
+              <option value="">Все районы</option>
+            </select>
+          </div>
+        </section>
+
+        <div class="sidebar-actions">
+          <button class="sheet-button" id="openSheetDialog">
+            <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M7 3.5h8l3 3V20.5H7z"></path><path d="M15 3.5v4h3"></path><path d="M10 11h5M10 14.5h5M10 18h3"></path></svg>
+            Подключить таблицу
+          </button>
+          <button class="add-button" id="addRecord">
+            <span>+</span> Добавить карточку
+          </button>
+        </div>
+      </aside>
+
+      <section class="map-area">
+        <header class="map-header">
+          <button class="icon-button menu-button" id="openSidebar" aria-label="Открыть меню">
+            <svg viewBox="0 0 24 24"><path d="M4 7h16M4 12h16M4 17h16"></path></svg>
+          </button>
+          <div class="map-title"><span>Карта</span><strong id="mapResultCount">0</strong></div>
+          <div class="map-tools">
+            <button class="map-tool is-selected" id="listToggle" title="Показать список">
+              <svg viewBox="0 0 24 24"><path d="M5 7h14M5 12h14M5 17h14"></path></svg>
+              Список
+            </button>
+            <button class="map-tool" id="locateButton" title="Центрировать карту">
+              <svg viewBox="0 0 24 24"><path d="m12 21 3-7 7-3-7-3-3-7-3 7-7 3 7 3z"></path></svg>
+              Центр
+            </button>
+          </div>
+        </header>
+
+        <div class="map-canvas" id="mapCanvas">
+          <div class="map-grain"></div>
+          <svg class="schematic-map" viewBox="0 0 1000 750" preserveAspectRatio="xMidYMid slice" aria-label="Схематичная карта Москвы" role="img">
+            <defs>
+              <pattern id="smallGrid" width="56" height="56" patternUnits="userSpaceOnUse"><path d="M 56 0 L 0 0 0 56" fill="none" stroke="#d9ddd7" stroke-width="1" opacity=".5" /></pattern>
+              <filter id="shadow"><feDropShadow dx="0" dy="3" stdDeviation="3" flood-opacity=".14" /></filter>
+            </defs>
+            <rect width="1000" height="750" fill="#edf1ec" />
+            <rect width="1000" height="750" fill="url(#smallGrid)" opacity=".54" />
+            <path d="M-80 487 C54 440 84 549 180 521 S306 446 374 501 S512 588 606 500 S738 421 846 474 S957 566 1080 454" fill="none" stroke="#b6d1c7" stroke-width="21" opacity=".95" />
+            <path d="M-80 487 C54 440 84 549 180 521 S306 446 374 501 S512 588 606 500 S738 421 846 474 S957 566 1080 454" fill="none" stroke="#dbe9e1" stroke-width="11" />
+            <path d="M138 146 C311 47 541 72 712 163 C888 257 893 491 721 625 C546 757 301 703 151 585 C13 476 13 260 138 146Z" fill="#f4f6f2" stroke="#bac2ba" stroke-width="2.3" stroke-dasharray="7 8" />
+            <path d="M265 150 C393 84 617 133 729 251 C842 369 769 546 616 605 C431 678 215 562 207 391 C201 282 217 204 265 150Z" fill="none" stroke="#c6cdc5" stroke-width="3" />
+            <path d="M161 286 C318 206 624 176 823 313M125 406 C331 345 686 366 864 479M266 618 C372 501 646 438 757 178M311 118 C391 281 602 471 770 580M102 542 C251 502 492 290 698 94" fill="none" stroke="#d0d5cf" stroke-width="7" stroke-linecap="round" />
+            <path d="M155 286 C319 207 622 177 830 316M124 405 C332 344 692 369 868 481M266 618 C373 500 645 435 758 177M311 118 C393 283 602 471 772 580M100 542 C249 504 492 290 699 94" fill="none" stroke="#fdfdfb" stroke-width="2.5" stroke-linecap="round" />
+            <g fill="#e5e9e3" stroke="#d7dcd5" stroke-width="1"><path d="M178 205h105v72H178z"/><path d="M333 152h117v86H333z"/><path d="M518 159h117v78H518z"/><path d="M701 255h100v80H701z"/><path d="M638 536h112v65H638z"/><path d="M334 550h121v78H334z"/><path d="M175 447h96v68H175z"/><path d="M487 353h112v76H487z"/></g>
+            <g fill="#879086" font-family="Manrope, sans-serif" font-size="13" font-weight="600" letter-spacing="1.8"><text x="450" y="304">ЦЕНТР</text><text x="208" y="376">ЗАПАД</text><text x="689" y="401">ВОСТОК</text><text x="436" y="648">ЮГ</text><text x="429" y="96">СЕВЕР</text></g>
+            <g fill="#9fa69e" font-family="DM Mono, monospace" font-size="11"><text x="52" y="87">СХЕМАТИЧНАЯ КАРТА</text><text x="855" y="695">МОСКВА · 2026</text></g>
+          </svg>
+          <div class="map-label center-label">Садовое кольцо</div>
+          <div class="map-legend"><span><i class="legend-dot doctor"></i>Врач</span><span><i class="legend-dot clinic"></i>Клиника</span><span><i class="legend-dot research"></i>Исследование</span></div>
+          <div class="pins-layer" id="pinsLayer" aria-live="polite"></div>
+          <div class="empty-map-state" id="emptyMapState" hidden>По этим фильтрам<br />ничего не найдено</div>
+        </div>
+
+        <section class="results-panel" id="resultsPanel">
+          <div class="results-header"><p><strong id="resultsCount">0</strong> подходящих вариантов</p><button id="closeResults" aria-label="Скрыть список">×</button></div>
+          <div class="result-list" id="resultList"></div>
+        </section>
+      </section>
+    </main>
+
+    <dialog class="modal" id="recordDialog">
+      <form method="dialog" id="recordForm">
+        <div class="modal-heading"><div><p class="eyebrow" id="recordDialogEyebrow">Новая карточка</p><h2 id="recordDialogTitle">Добавить запись</h2></div><button type="button" class="icon-button" data-close-dialog="recordDialog" aria-label="Закрыть">×</button></div>
+        <input type="hidden" id="recordId" />
+        <div class="form-grid">
+          <label class="wide">Название / ФИО<input id="name" required placeholder="Например, Анна Иванова" /></label>
+          <label>Тип<select id="type" required><option value="doctor">Врач</option><option value="clinic">Клиника</option><option value="research">Исследование</option></select></label>
+          <label>Направление<input id="specialty" required placeholder="Кардиология" /></label>
+          <label>Район<input id="district" required placeholder="Хамовники" /></label>
+          <label>Метро / ориентир<input id="metro" placeholder="Парк культуры" /></label>
+          <label>Стоимость<input id="price" placeholder="от 5 000 ₽" /></label>
+          <label class="wide">Услуги <input id="services" placeholder="Консультация, ЭКГ, УЗИ" /></label>
+          <label class="wide">Комментарий<textarea id="note" rows="3" placeholder="Особенности записи или важная информация"></textarea></label>
+          <div class="coordinates wide"><span>Положение на карте</span><div><label>X<input id="x" type="number" min="5" max="95" required /></label><label>Y<input id="y" type="number" min="8" max="92" required /></label></div></div>
+        </div>
+        <div class="form-actions"><button type="button" class="delete-button" id="deleteRecord" hidden>Удалить</button><span></span><button type="button" class="cancel-button" data-close-dialog="recordDialog">Отмена</button><button class="save-button" value="default">Сохранить карточку</button></div>
+      </form>
+    </dialog>
+
+    <dialog class="modal sheet-modal" id="sheetDialog">
+      <form method="dialog" id="sheetForm">
+        <div class="modal-heading"><div><p class="eyebrow">Источник данных</p><h2>Подключить Google Sheets</h2></div><button type="button" class="icon-button" data-close-dialog="sheetDialog" aria-label="Закрыть">×</button></div>
+        <p class="modal-copy">Вставьте ссылку на CSV, опубликованный из Google Sheets. Приложение распознаёт русские колонки текущего каталога и заменит текущие карточки.</p>
+        <label>Ссылка на CSV<input id="sheetUrl" type="url" placeholder="https://docs.google.com/spreadsheets/..." /></label>
+        <details><summary>Какие колонки нужны?</summary><p>Подойдут текущие: <code>Краткое название</code>, <code>Адрес</code>, <code>Основные направления</code>, <code>Возраст</code>, <code>Уровень учреждения</code>, <code>Формат помощи</code>. Или универсальные: <code>name</code>, <code>type</code>, <code>specialty</code>, <code>district</code>, <code>x</code>, <code>y</code>. Для CSV без координат точка будет размещена условно.</p></details>
+        <p class="form-message" id="sheetMessage" role="status"></p>
+        <div class="form-actions"><span></span><button type="button" class="cancel-button" data-close-dialog="sheetDialog">Отмена</button><button class="save-button" id="importSheet" value="default">Загрузить данные</button></div>
+      </form>
+    </dialog>
+
+    <div class="toast" id="toast" role="status"></div>
+    <script src="./app.js"></script>
+  </body>
+</html>
