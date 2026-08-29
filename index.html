@@ -8,6 +8,7 @@
     <link rel="preconnect" href="https://fonts.googleapis.com" />
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
     <link href="https://fonts.googleapis.com/css2?family=DM+Mono:wght@400;500&family=Manrope:wght@400;500;600;700;800&family=Playfair+Display:ital,wght@0,600;0,700;1,600&display=swap" rel="stylesheet" />
+    <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" integrity="sha256-p4NxAoJBhIIN+hmNHrzRCf9tD/miZyoHS5obTRR9BMY=" crossorigin="" />
     <link rel="stylesheet" href="./styles.css" />
   </head>
   <body>
@@ -84,32 +85,8 @@
         </header>
 
         <div class="map-canvas" id="mapCanvas">
-          <div class="map-grain"></div>
-          <svg class="schematic-map" viewBox="0 0 1000 750" preserveAspectRatio="xMidYMid slice" aria-label="Упрощённая карта Москвы" role="img">
-            <defs>
-              <pattern id="smallGrid" width="48" height="48" patternUnits="userSpaceOnUse"><path d="M 48 0 L 0 0 0 48" fill="none" stroke="#d6ddd5" stroke-width="1" opacity=".5" /></pattern>
-              <filter id="mapShadow"><feDropShadow dx="0" dy="5" stdDeviation="6" flood-color="#476154" flood-opacity=".12" /></filter>
-            </defs>
-            <rect width="1000" height="750" fill="#eaf0ea" />
-            <rect width="1000" height="750" fill="url(#smallGrid)" opacity=".52" />
-            <path d="M228 101 L326 112 L396 80 L475 113 L560 96 L630 130 L728 127 L781 192 L852 226 L830 302 L875 370 L841 445 L861 520 L794 565 L758 631 L672 643 L598 689 L510 661 L432 686 L361 646 L278 651 L213 600 L151 587 L137 515 L91 457 L126 385 L105 315 L154 255 L160 179 Z" fill="#f8faf6" stroke="#b9c4b9" stroke-width="3" stroke-linejoin="round" filter="url(#mapShadow)" />
-            <path d="M225 102 L327 113 L397 81 L477 114 L560 97 L630 131 L728 128 L781 193 L851 227 L829 302 L874 371 L840 445 L860 520 L793 565 L757 630 L672 642 L598 688 L510 660 L432 685 L361 645 L278 650 L213 599 L152 586 L138 514 L92 456 L127 385 L106 315 L155 255 L161 179 Z" fill="none" stroke="#889788" stroke-width="1.4" stroke-dasharray="5 7" opacity=".8" />
-            <g fill="none" stroke-linecap="round" stroke-linejoin="round">
-              <path d="M-55 510 C61 455 138 563 223 522 C301 485 300 418 386 438 C476 459 514 556 598 523 C687 488 710 399 788 421 C873 445 912 525 1055 461" stroke="#a8ccbe" stroke-width="25" />
-              <path d="M-55 510 C61 455 138 563 223 522 C301 485 300 418 386 438 C476 459 514 556 598 523 C687 488 710 399 788 421 C873 445 912 525 1055 461" stroke="#e0eee7" stroke-width="12" />
-              <path d="M338 254 C420 178 590 182 688 263 C781 339 754 493 655 555 C555 618 380 590 305 486 C246 403 270 315 338 254Z" stroke="#b9c3b9" stroke-width="3.5" />
-              <path d="M394 308 C450 264 553 260 614 309 C677 360 665 440 603 481 C540 523 440 507 388 452 C346 407 348 346 394 308Z" stroke="#aab6ab" stroke-width="3" stroke-dasharray="9 7" />
-              <path d="M461 346 C486 323 534 324 560 349 C589 377 582 425 551 445 C517 466 471 455 450 424 C433 397 438 366 461 346Z" stroke="#8e9e91" stroke-width="2.5" />
-              <path d="M192 292 L496 379 L796 278M154 420 L489 390 L804 532M301 606 L487 390 L676 163M375 146 L492 389 L733 611M132 546 L488 389 L817 408M246 178 L491 389 L831 331" stroke="#d0d7cf" stroke-width="9" />
-              <path d="M192 292 L496 379 L796 278M154 420 L489 390 L804 532M301 606 L487 390 L676 163M375 146 L492 389 L733 611M132 546 L488 389 L817 408M246 178 L491 389 L831 331" stroke="#fffefd" stroke-width="2.6" />
-            </g>
-            <g fill="#e5ebe4" stroke="#d4ddd3" stroke-width="1"><path d="M181 206l76-28 51 45-36 74-80-5z"/><path d="M423 144l87 9 24 64-70 33-58-42z"/><path d="M670 183l72 43-22 77-84-8-24-61z"/><path d="M738 458l83 33-19 70-87-6-20-52z"/><path d="M556 578l91 20-17 63-94 2-33-48z"/><path d="M305 535l88-10 33 66-60 52-78-38z"/><path d="M166 413l71-13 42 64-60 47-73-35z"/></g>
-            <g fill="#7c897e" font-family="Manrope, sans-serif" font-size="13" font-weight="700" letter-spacing="1.9"><text x="471" y="251">СЕВЕР</text><text x="205" y="390">ЗАПАД</text><text x="703" y="385">ВОСТОК</text><text x="456" y="607">ЮГ</text><text x="458" y="385">ЦЕНТР</text></g>
-            <g fill="#8e9a8f" font-family="DM Mono, monospace" font-size="10" letter-spacing=".9"><text x="85" y="120">МКАД · СХЕМАТИЧНО</text><text x="613" y="258">ТРЕТЬЕ ТРАНСПОРТНОЕ КОЛЬЦО</text><text x="564" y="350">САДОВОЕ</text><text x="566" y="365">КОЛЬЦО</text><text x="57" y="689">МОСКВА-РЕКА</text><text x="838" y="690">МОСКВА · 2026</text></g>
-          </svg>
-          <div class="map-label center-label">Центральный округ</div>
+          <div id="leafletMap" aria-label="Интерактивная карта Москвы"></div>
           <div class="map-legend"><span><i class="legend-dot doctor"></i>Врач</span><span><i class="legend-dot clinic"></i>Клиника</span><span><i class="legend-dot research"></i>Исследование</span></div>
-          <div class="pins-layer" id="pinsLayer" aria-live="polite"></div>
           <div class="empty-map-state" id="emptyMapState" hidden>По этим фильтрам<br />ничего не найдено</div>
         </div>
 
@@ -159,6 +136,7 @@
     </dialog>
 
     <div class="toast" id="toast" role="status"></div>
+    <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js" integrity="sha256-20nQCchB9co0qIjJZRGuk2/Z9VM+kNiyxNV1lvTlZBo=" crossorigin=""></script>
     <script src="./app.js"></script>
   </body>
 </html>
