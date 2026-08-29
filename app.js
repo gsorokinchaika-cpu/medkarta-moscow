@@ -63,7 +63,7 @@ const $ = (s) => document.querySelector(s);
 const els = {
   pins: $('#pinsLayer'), resultList: $('#resultList'), resultCount: $('#resultsCount'), mapCount: $('#mapResultCount'),
   specialtyFilters: $('#specialtyFilters'), specialtyCount: $('#specialtyCount'), district: $('#districtFilter'),
-  search: $('#searchInput'), empty: $('#emptyMapState'), resultPanel: $('#resultsPanel'), recordDialog: $('#recordDialog'),
+  search: $('#searchInput'), empty: $('#emptyMapState'), resultPanel: $('#resultsPanel'), detailsDialog: $('#detailsDialog'), detailsTags: $('#detailsTags'), detailsContent: $('#detailsContent'), recordDialog: $('#recordDialog'),
   recordForm: $('#recordForm'), deleteButton: $('#deleteRecord'), toast: $('#toast'), sheetDialog: $('#sheetDialog'), sheetForm: $('#sheetForm'), sheetMessage: $('#sheetMessage')
 };
 
@@ -100,22 +100,37 @@ function render() {
   els.empty.hidden = list.length !== 0;
   els.pins.innerHTML = list.map(r => `<button class="pin ${r.type} ${activeId === r.id ? 'is-active':''}" data-id="${r.id}" style="left:${Number(r.x)}%;top:${Number(r.y)}%" aria-label="${escapeHtml(r.name)}"><span class="pin-shape">${icon(r.type)}</span><span class="pin-label"><strong>${escapeHtml(r.name)}</strong>${escapeHtml(getDirections(r).join(' · '))} · ${escapeHtml(r.district)}</span></button>`).join('');
   els.resultList.innerHTML = list.map(r => `<button class="result-card ${activeId === r.id ? 'is-active':''}" data-id="${r.id}"><span class="result-type ${r.type}">${icon(r.type)}</span><span class="result-card-content"><h3>${escapeHtml(r.name)}</h3><p>${escapeHtml(getDirections(r).slice(0, 2).join(' · '))} · ${escapeHtml(r.metro || r.district)}</p><span class="tag">${escapeHtml(typeName(r.type))}</span></span></button>`).join('') || '<div class="no-results">Попробуйте изменить фильтры.</div>';
-  document.querySelectorAll('[data-id]').forEach(element => element.addEventListener('click', () => openEdit(element.dataset.id)));
+  document.querySelectorAll('[data-id]').forEach(element => element.addEventListener('click', () => openDetails(element.dataset.id)));
 }
 function selectRecord(id) { activeId = id; render(); }
-function openEdit(id) {
+function detailSection(label, value) { return value ? `<section class="detail-section"><p>${escapeHtml(label)}</p><div>${escapeHtml(value)}</div></section>` : ''; }
+function openDetails(id) {
   const record = records.find(r => r.id === id); if (!record) return;
   selectRecord(id);
+  $('#detailsEyebrow').textContent = typeName(record.type);
+  $('#detailsTitle').textContent = record.name;
+  els.detailsTags.innerHTML = getDirections(record).map(direction => `<span>${escapeHtml(direction)}</span>`).join('');
+  const location = [record.district, record.metro].filter(Boolean).join(' · ');
+  els.detailsContent.innerHTML = [
+    detailSection('Услуги и компетенции', record.services), detailSection('Расположение', location),
+    detailSection('Стоимость', record.price), detailSection('Комментарий', record.note)
+  ].filter(Boolean).join('') || '<p class="details-empty">Дополнительная информация пока не добавлена.</p>';
+  els.detailsDialog.showModal();
+}
+function openEdit(id) {
+  const record = records.find(r => r.id === id); if (!record) return;
+  if (els.detailsDialog.open) els.detailsDialog.close();
+  selectRecord(id);
   $('#recordDialogEyebrow').textContent = typeName(record.type);
-  $('#recordDialogTitle').textContent = 'Карточка записи';
+  $('#recordDialogTitle').textContent = 'Редактировать карточку';
   $('#recordId').value = record.id;
-  ['name','type','specialty','district','metro','price','services','note','x','y'].forEach(key => { $(`#${key}`).value = record[key] ?? ''; });
+  ['name','type','specialty','district','metro','price','services','note'].forEach(key => { $(`#${key}`).value = record[key] ?? ''; });
   els.deleteButton.hidden = false;
   els.recordDialog.showModal();
 }
 function openAdd() {
   els.recordForm.reset();
-  $('#recordDialogEyebrow').textContent = 'Новая карточка'; $('#recordDialogTitle').textContent = 'Добавить запись'; $('#recordId').value = ''; $('#x').value = 50; $('#y').value = 50; els.deleteButton.hidden = true; els.recordDialog.showModal();
+  $('#recordDialogEyebrow').textContent = 'Новая карточка'; $('#recordDialogTitle').textContent = 'Добавить запись'; $('#recordId').value = ''; els.deleteButton.hidden = true; els.recordDialog.showModal();
 }
 function showToast(text) { els.toast.textContent = text; els.toast.classList.add('is-visible'); clearTimeout(showToast.timer); showToast.timer = setTimeout(() => els.toast.classList.remove('is-visible'), 2600); }
 function renderAll() { renderFilterOptions(); render(); }
@@ -126,7 +141,8 @@ els.district.addEventListener('change', () => { filters.district = els.district.
 $('#resetFilters').addEventListener('click', () => { filters = {query:'',type:'all',specialties:new Set(),district:''}; els.search.value=''; $('#typeFilters').querySelectorAll('button').forEach(b=>b.classList.toggle('is-active',b.dataset.type==='all')); renderAll(); });
 $('#addRecord').addEventListener('click', openAdd); $('#openSheetDialog').addEventListener('click', () => { els.sheetMessage.textContent=''; $('#sheetUrl').value = localStorage.getItem('medkarta-sheet-url') || ''; els.sheetDialog.showModal(); });
 document.querySelectorAll('[data-close-dialog]').forEach(button => button.addEventListener('click', () => $(`#${button.dataset.closeDialog}`).close()));
-els.recordForm.addEventListener('submit', event => { event.preventDefault(); const form = new FormData(els.recordForm); const id = form.get('recordId') || `m-${Date.now()}`; const entry = Object.fromEntries(form.entries()); entry.id=id; entry.x=Number(entry.x);entry.y=Number(entry.y);entry.directions=classifyDirections(`${entry.specialty} ${entry.services}`); const index=records.findIndex(r=>r.id===id); if(index >= 0) records[index]=entry; else records.unshift(entry); saveRecords(); activeId=id; els.recordDialog.close(); renderAll(); showToast(index >= 0 ? 'Карточка сохранена' : 'Карточка добавлена'); });
+$('#editRecord').addEventListener('click', () => { if (activeId) openEdit(activeId); });
+els.recordForm.addEventListener('submit', event => { event.preventDefault(); const form = new FormData(els.recordForm); const id = form.get('recordId') || `m-${Date.now()}`; const entry = Object.fromEntries(form.entries()); const index=records.findIndex(r=>r.id===id); const placement=index >= 0 ? records[index] : sourcePlacement(`${entry.district || ''} ${entry.metro || ''}`, records.length); entry.id=id; entry.x=Number(placement.x);entry.y=Number(placement.y);entry.directions=classifyDirections(`${entry.specialty} ${entry.services}`); if(index >= 0) records[index]=entry; else records.unshift(entry); saveRecords(); activeId=id; els.recordDialog.close(); renderAll(); showToast(index >= 0 ? 'Карточка сохранена' : 'Карточка добавлена'); });
 els.deleteButton.addEventListener('click', () => { const id=$('#recordId').value; records=records.filter(r=>r.id!==id); activeId=null; saveRecords(); els.recordDialog.close(); renderAll(); showToast('Карточка удалена'); });
 $('#closeResults').addEventListener('click', () => { els.resultPanel.classList.add('is-hidden'); $('#listToggle').classList.remove('is-selected'); }); $('#listToggle').addEventListener('click', () => { els.resultPanel.classList.toggle('is-hidden'); $('#listToggle').classList.toggle('is-selected', !els.resultPanel.classList.contains('is-hidden')); });
 $('#locateButton').addEventListener('click', () => { activeId=null; render(); showToast('Карта центрирована на Москве'); });
@@ -137,11 +153,11 @@ function googleCsvUrl(raw) { const url = raw.trim(); if (!url.includes('docs.goo
 function parseCsv(input) { const rows=[]; let row=[], cell='', quoted=false; for(let i=0;i<input.length;i++){ const c=input[i], n=input[i+1]; if(c==='"' && quoted && n==='"'){cell+='"';i++;} else if(c==='"'){quoted=!quoted;} else if(c===',' && !quoted){row.push(cell);cell='';} else if((c==='\n' || c==='\r') && !quoted){ if(c==='\r'&&n==='\n')i++;row.push(cell); if(row.some(v=>v.trim()))rows.push(row);row=[];cell='';} else cell+=c; } row.push(cell); if(row.some(v=>v.trim()))rows.push(row); if(rows.length<2)return []; const headers=rows.shift().map(x=>x.trim().toLowerCase()); return rows.map(row=>Object.fromEntries(headers.map((h,i)=>[h,(row[i]||'').trim()]))); }
 function sourcePlacement(address = '', index = 0) {
   const value = address.toLocaleLowerCase('ru'); let district='Центр', base=[51, 42];
-  if (/кашир|коломен|орехов|бакин|коммунарк/.test(value)) { district='Юг'; base=[52, 72]; }
-  else if (/волоколам|боткин|талдом|панфилов|сходнен|селигер/.test(value)) { district='Север'; base=[50, 21]; }
-  else if (/первомай|энтузиаст|госпиталь|обуха|лефорт/.test(value)) { district='Восток'; base=[74, 45]; }
-  else if (/рублев|лобачев|саляма|молодеж|деловой/.test(value)) { district='Запад'; base=[27, 47]; }
-  else if (/островит|опарин|ленинск|вернад/.test(value)) { district='Юго-запад'; base=[38, 65]; }
+  if (/\bюг\b|кашир|коломен|орехов|бакин|коммунарк/.test(value)) { district='Юг'; base=[52, 72]; }
+  else if (/\bсевер\b|волоколам|боткин|талдом|панфилов|сходнен|селигер/.test(value)) { district='Север'; base=[50, 21]; }
+  else if (/\bвосток\b|первомай|энтузиаст|госпиталь|обуха|лефорт/.test(value)) { district='Восток'; base=[74, 45]; }
+  else if (/\bзапад\b|рублев|лобачев|саляма|молодеж|деловой/.test(value)) { district='Запад'; base=[27, 47]; }
+  else if (/юго-запад|островит|опарин|ленинск|вернад/.test(value)) { district='Юго-запад'; base=[38, 65]; }
   return { district, x:base[0] + ((index * 17) % 13) - 6, y:base[1] + ((index * 11) % 11) - 5 };
 }
 function extractMetro(address = '') { return (address.match(/(?:метро|м\.)\s*([^.,;]+)/i) || [])[1]?.trim() || ''; }
