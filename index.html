@@ -85,24 +85,29 @@
 
         <div class="map-canvas" id="mapCanvas">
           <div class="map-grain"></div>
-          <svg class="schematic-map" viewBox="0 0 1000 750" preserveAspectRatio="xMidYMid slice" aria-label="Схематичная карта Москвы" role="img">
+          <svg class="schematic-map" viewBox="0 0 1000 750" preserveAspectRatio="xMidYMid slice" aria-label="Упрощённая карта Москвы" role="img">
             <defs>
-              <pattern id="smallGrid" width="56" height="56" patternUnits="userSpaceOnUse"><path d="M 56 0 L 0 0 0 56" fill="none" stroke="#d9ddd7" stroke-width="1" opacity=".5" /></pattern>
-              <filter id="shadow"><feDropShadow dx="0" dy="3" stdDeviation="3" flood-opacity=".14" /></filter>
+              <pattern id="smallGrid" width="48" height="48" patternUnits="userSpaceOnUse"><path d="M 48 0 L 0 0 0 48" fill="none" stroke="#d6ddd5" stroke-width="1" opacity=".5" /></pattern>
+              <filter id="mapShadow"><feDropShadow dx="0" dy="5" stdDeviation="6" flood-color="#476154" flood-opacity=".12" /></filter>
             </defs>
-            <rect width="1000" height="750" fill="#edf1ec" />
-            <rect width="1000" height="750" fill="url(#smallGrid)" opacity=".54" />
-            <path d="M-80 487 C54 440 84 549 180 521 S306 446 374 501 S512 588 606 500 S738 421 846 474 S957 566 1080 454" fill="none" stroke="#b6d1c7" stroke-width="21" opacity=".95" />
-            <path d="M-80 487 C54 440 84 549 180 521 S306 446 374 501 S512 588 606 500 S738 421 846 474 S957 566 1080 454" fill="none" stroke="#dbe9e1" stroke-width="11" />
-            <path d="M138 146 C311 47 541 72 712 163 C888 257 893 491 721 625 C546 757 301 703 151 585 C13 476 13 260 138 146Z" fill="#f4f6f2" stroke="#bac2ba" stroke-width="2.3" stroke-dasharray="7 8" />
-            <path d="M265 150 C393 84 617 133 729 251 C842 369 769 546 616 605 C431 678 215 562 207 391 C201 282 217 204 265 150Z" fill="none" stroke="#c6cdc5" stroke-width="3" />
-            <path d="M161 286 C318 206 624 176 823 313M125 406 C331 345 686 366 864 479M266 618 C372 501 646 438 757 178M311 118 C391 281 602 471 770 580M102 542 C251 502 492 290 698 94" fill="none" stroke="#d0d5cf" stroke-width="7" stroke-linecap="round" />
-            <path d="M155 286 C319 207 622 177 830 316M124 405 C332 344 692 369 868 481M266 618 C373 500 645 435 758 177M311 118 C393 283 602 471 772 580M100 542 C249 504 492 290 699 94" fill="none" stroke="#fdfdfb" stroke-width="2.5" stroke-linecap="round" />
-            <g fill="#e5e9e3" stroke="#d7dcd5" stroke-width="1"><path d="M178 205h105v72H178z"/><path d="M333 152h117v86H333z"/><path d="M518 159h117v78H518z"/><path d="M701 255h100v80H701z"/><path d="M638 536h112v65H638z"/><path d="M334 550h121v78H334z"/><path d="M175 447h96v68H175z"/><path d="M487 353h112v76H487z"/></g>
-            <g fill="#879086" font-family="Manrope, sans-serif" font-size="13" font-weight="600" letter-spacing="1.8"><text x="450" y="304">ЦЕНТР</text><text x="208" y="376">ЗАПАД</text><text x="689" y="401">ВОСТОК</text><text x="436" y="648">ЮГ</text><text x="429" y="96">СЕВЕР</text></g>
-            <g fill="#9fa69e" font-family="DM Mono, monospace" font-size="11"><text x="52" y="87">СХЕМАТИЧНАЯ КАРТА</text><text x="855" y="695">МОСКВА · 2026</text></g>
+            <rect width="1000" height="750" fill="#eaf0ea" />
+            <rect width="1000" height="750" fill="url(#smallGrid)" opacity=".52" />
+            <path d="M228 101 L326 112 L396 80 L475 113 L560 96 L630 130 L728 127 L781 192 L852 226 L830 302 L875 370 L841 445 L861 520 L794 565 L758 631 L672 643 L598 689 L510 661 L432 686 L361 646 L278 651 L213 600 L151 587 L137 515 L91 457 L126 385 L105 315 L154 255 L160 179 Z" fill="#f8faf6" stroke="#b9c4b9" stroke-width="3" stroke-linejoin="round" filter="url(#mapShadow)" />
+            <path d="M225 102 L327 113 L397 81 L477 114 L560 97 L630 131 L728 128 L781 193 L851 227 L829 302 L874 371 L840 445 L860 520 L793 565 L757 630 L672 642 L598 688 L510 660 L432 685 L361 645 L278 650 L213 599 L152 586 L138 514 L92 456 L127 385 L106 315 L155 255 L161 179 Z" fill="none" stroke="#889788" stroke-width="1.4" stroke-dasharray="5 7" opacity=".8" />
+            <g fill="none" stroke-linecap="round" stroke-linejoin="round">
+              <path d="M-55 510 C61 455 138 563 223 522 C301 485 300 418 386 438 C476 459 514 556 598 523 C687 488 710 399 788 421 C873 445 912 525 1055 461" stroke="#a8ccbe" stroke-width="25" />
+              <path d="M-55 510 C61 455 138 563 223 522 C301 485 300 418 386 438 C476 459 514 556 598 523 C687 488 710 399 788 421 C873 445 912 525 1055 461" stroke="#e0eee7" stroke-width="12" />
+              <path d="M338 254 C420 178 590 182 688 263 C781 339 754 493 655 555 C555 618 380 590 305 486 C246 403 270 315 338 254Z" stroke="#b9c3b9" stroke-width="3.5" />
+              <path d="M394 308 C450 264 553 260 614 309 C677 360 665 440 603 481 C540 523 440 507 388 452 C346 407 348 346 394 308Z" stroke="#aab6ab" stroke-width="3" stroke-dasharray="9 7" />
+              <path d="M461 346 C486 323 534 324 560 349 C589 377 582 425 551 445 C517 466 471 455 450 424 C433 397 438 366 461 346Z" stroke="#8e9e91" stroke-width="2.5" />
+              <path d="M192 292 L496 379 L796 278M154 420 L489 390 L804 532M301 606 L487 390 L676 163M375 146 L492 389 L733 611M132 546 L488 389 L817 408M246 178 L491 389 L831 331" stroke="#d0d7cf" stroke-width="9" />
+              <path d="M192 292 L496 379 L796 278M154 420 L489 390 L804 532M301 606 L487 390 L676 163M375 146 L492 389 L733 611M132 546 L488 389 L817 408M246 178 L491 389 L831 331" stroke="#fffefd" stroke-width="2.6" />
+            </g>
+            <g fill="#e5ebe4" stroke="#d4ddd3" stroke-width="1"><path d="M181 206l76-28 51 45-36 74-80-5z"/><path d="M423 144l87 9 24 64-70 33-58-42z"/><path d="M670 183l72 43-22 77-84-8-24-61z"/><path d="M738 458l83 33-19 70-87-6-20-52z"/><path d="M556 578l91 20-17 63-94 2-33-48z"/><path d="M305 535l88-10 33 66-60 52-78-38z"/><path d="M166 413l71-13 42 64-60 47-73-35z"/></g>
+            <g fill="#7c897e" font-family="Manrope, sans-serif" font-size="13" font-weight="700" letter-spacing="1.9"><text x="471" y="251">СЕВЕР</text><text x="205" y="390">ЗАПАД</text><text x="703" y="385">ВОСТОК</text><text x="456" y="607">ЮГ</text><text x="458" y="385">ЦЕНТР</text></g>
+            <g fill="#8e9a8f" font-family="DM Mono, monospace" font-size="10" letter-spacing=".9"><text x="85" y="120">МКАД · СХЕМАТИЧНО</text><text x="613" y="258">ТРЕТЬЕ ТРАНСПОРТНОЕ КОЛЬЦО</text><text x="564" y="350">САДОВОЕ</text><text x="566" y="365">КОЛЬЦО</text><text x="57" y="689">МОСКВА-РЕКА</text><text x="838" y="690">МОСКВА · 2026</text></g>
           </svg>
-          <div class="map-label center-label">Садовое кольцо</div>
+          <div class="map-label center-label">Центральный округ</div>
           <div class="map-legend"><span><i class="legend-dot doctor"></i>Врач</span><span><i class="legend-dot clinic"></i>Клиника</span><span><i class="legend-dot research"></i>Исследование</span></div>
           <div class="pins-layer" id="pinsLayer" aria-live="polite"></div>
           <div class="empty-map-state" id="emptyMapState" hidden>По этим фильтрам<br />ничего не найдено</div>
@@ -115,20 +120,28 @@
       </section>
     </main>
 
+    <dialog class="modal details-modal" id="detailsDialog">
+      <section class="record-view">
+        <div class="modal-heading"><div><p class="eyebrow" id="detailsEyebrow">Карточка</p><h2 id="detailsTitle">Учреждение</h2></div><button type="button" class="icon-button" data-close-dialog="detailsDialog" aria-label="Закрыть">×</button></div>
+        <div class="details-tags" id="detailsTags"></div>
+        <div class="details-content" id="detailsContent"></div>
+        <div class="details-actions"><span></span><button class="save-button" type="button" id="editRecord">Редактировать карточку</button></div>
+      </section>
+    </dialog>
+
     <dialog class="modal" id="recordDialog">
       <form method="dialog" id="recordForm">
         <div class="modal-heading"><div><p class="eyebrow" id="recordDialogEyebrow">Новая карточка</p><h2 id="recordDialogTitle">Добавить запись</h2></div><button type="button" class="icon-button" data-close-dialog="recordDialog" aria-label="Закрыть">×</button></div>
-        <input type="hidden" id="recordId" />
+        <input type="hidden" id="recordId" name="recordId" />
         <div class="form-grid">
-          <label class="wide">Название / ФИО<input id="name" required placeholder="Например, Анна Иванова" /></label>
-          <label>Тип<select id="type" required><option value="doctor">Врач</option><option value="clinic">Клиника</option><option value="research">Исследование</option></select></label>
-          <label>Направление<input id="specialty" required placeholder="Кардиология" /></label>
-          <label>Район<input id="district" required placeholder="Хамовники" /></label>
-          <label>Метро / ориентир<input id="metro" placeholder="Парк культуры" /></label>
-          <label>Стоимость<input id="price" placeholder="от 5 000 ₽" /></label>
-          <label class="wide">Услуги <input id="services" placeholder="Консультация, ЭКГ, УЗИ" /></label>
-          <label class="wide">Комментарий<textarea id="note" rows="3" placeholder="Особенности записи или важная информация"></textarea></label>
-          <div class="coordinates wide"><span>Положение на карте</span><div><label>X<input id="x" type="number" min="5" max="95" required /></label><label>Y<input id="y" type="number" min="8" max="92" required /></label></div></div>
+          <label class="wide">Название / ФИО<input id="name" name="name" required placeholder="Например, Анна Иванова" /></label>
+          <label>Тип<select id="type" name="type" required><option value="doctor">Врач</option><option value="clinic">Клиника</option><option value="research">Исследование</option></select></label>
+          <label>Направление<input id="specialty" name="specialty" required placeholder="Кардиология" /></label>
+          <label>Район<input id="district" name="district" required placeholder="Хамовники" /></label>
+          <label>Метро / ориентир<input id="metro" name="metro" placeholder="Парк культуры" /></label>
+          <label>Стоимость<input id="price" name="price" placeholder="от 5 000 ₽" /></label>
+          <label class="wide">Услуги <input id="services" name="services" placeholder="Консультация, ЭКГ, УЗИ" /></label>
+          <label class="wide">Комментарий<textarea id="note" name="note" rows="3" placeholder="Особенности записи или важная информация"></textarea></label>
         </div>
         <div class="form-actions"><button type="button" class="delete-button" id="deleteRecord" hidden>Удалить</button><span></span><button type="button" class="cancel-button" data-close-dialog="recordDialog">Отмена</button><button class="save-button" value="default">Сохранить карточку</button></div>
       </form>
