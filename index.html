@@ -26,7 +26,11 @@
           <p class="eyebrow">Ассистенту · Москва</p>
           <h1>Найдите нужную<br /><em>медицинскую</em> помощь</h1>
           <p>Фильтруйте специалистов, клиники и исследования. Карта служит ориентиром.</p>
-          <a class="source-link" href="https://docs.google.com/spreadsheets/d/1w55BqwgeNZTaxhsiq6tz3-UG9n92TwBu/edit?gid=723850286#gid=723850286" target="_blank" rel="noreferrer">Источник: ваша таблица ↗</a>
+          <div class="source-meta">
+            <a class="source-link" href="https://docs.google.com/spreadsheets/d/1w55BqwgeNZTaxhsiq6tz3-UG9n92TwBu/edit?gid=723850286#gid=723850286" target="_blank" rel="noreferrer">Источник: ваша таблица ↗</a>
+            <button class="sync-now" id="syncNow" type="button" title="Обновить данные сейчас" aria-label="Обновить данные из таблицы">↻</button>
+          </div>
+          <p class="sync-status is-syncing" id="syncStatus" aria-live="polite"><i></i><span>Синхронизация…</span></p>
         </section>
 
         <label class="search-wrap" for="searchInput">
@@ -58,7 +62,7 @@
         <div class="sidebar-actions">
           <button class="sheet-button" id="openSheetDialog">
             <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M7 3.5h8l3 3V20.5H7z"></path><path d="M15 3.5v4h3"></path><path d="M10 11h5M10 14.5h5M10 18h3"></path></svg>
-            Подключить таблицу
+            Настроить источник
           </button>
           <button class="add-button" id="addRecord">
             <span>+</span> Добавить карточку
@@ -127,8 +131,8 @@
     <dialog class="modal sheet-modal" id="sheetDialog">
       <form method="dialog" id="sheetForm">
         <div class="modal-heading"><div><p class="eyebrow">Источник данных</p><h2>Подключить Google Sheets</h2></div><button type="button" class="icon-button" data-close-dialog="sheetDialog" aria-label="Закрыть">×</button></div>
-        <p class="modal-copy">Вставьте ссылку на CSV, опубликованный из Google Sheets. Приложение распознаёт русские колонки текущего каталога и заменит текущие карточки.</p>
-        <label>Ссылка на CSV<input id="sheetUrl" type="url" placeholder="https://docs.google.com/spreadsheets/..." /></label>
+        <p class="modal-copy">Укажите доступную ссылку на Google Sheets или CSV. Приложение проверяет источник при открытии, каждые пять минут и после возвращения на вкладку.</p>
+        <label>Ссылка на таблицу или CSV<input id="sheetUrl" type="url" placeholder="https://docs.google.com/spreadsheets/..." /></label>
         <details><summary>Какие колонки нужны?</summary><p>Подойдут текущие: <code>Краткое название</code>, <code>Адрес</code>, <code>Основные направления</code>, <code>Возраст</code>, <code>Уровень учреждения</code>, <code>Формат помощи</code>. Или универсальные: <code>name</code>, <code>type</code>, <code>specialty</code>, <code>district</code>, <code>latitude</code>, <code>longitude</code>. Для CSV без координат точка будет размещена по району; для текущего каталога реальные координаты уже встроены.</p></details>
         <p class="form-message" id="sheetMessage" role="status"></p>
         <div class="form-actions"><span></span><button type="button" class="cancel-button" data-close-dialog="sheetDialog">Отмена</button><button class="save-button" id="importSheet" value="default">Загрузить данные</button></div>
