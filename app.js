@@ -254,7 +254,51 @@ $('#locateButton').addEventListener('click', () => { activeId=null; render(); if
 $('#openSidebar').addEventListener('click', () => $('#sidebar').classList.add('is-open')); $('#closeSidebar').addEventListener('click', () => $('#sidebar').classList.remove('is-open'));
 document.addEventListener('keydown', event => { if ((event.metaKey || event.ctrlKey) && event.key.toLowerCase()==='k') { event.preventDefault(); els.search.focus(); } });
 
-function googleCsvUrl(raw) { const url = raw.trim(); if (!url.includes('docs.google.com/spreadsheets')) return url; const id = url.match(/\/d\/([^/]+)/)?.[1]; if (!id) return url; const gid = url.match(/[?#&]gid=(\d+)/)?.[1] || '0'; return `https://docs.google.com/spreadsheets/d/${id}/gviz/tq?tqx=out:csv&gid=${gid}`; }
+function googleSheetInfo(raw = '') {
+  const url=raw.trim(); if(!url.includes('docs.google.com/spreadsheets')) return null;
+  const id=url.match(/\/d\/([^/]+)/)?.[1]; if(!id) return null;
+  return {id,gid:url.match(/[?#&]gid=(\d+)/)?.[1] || '0'};
+}
+function googleCsvUrl(raw) { const sheet=googleSheetInfo(raw); return sheet ? `https://docs.google.com/spreadsheets/d/${sheet.id}/gviz/tq?tqx=out:csv&gid=${sheet.gid}` : raw.trim(); }
+function googleTableRows(payload) {
+  if(payload?.status!=='ok' || !payload.table) throw new Error('Google Таблица вернула некорректный ответ');
+  const headers=payload.table.cols.map(column=>String(column.label || column.id || '').trim().toLocaleLowerCase('ru'));
+  return payload.table.rows.map(row=>Object.fromEntries(headers.map((header,index)=>{
+    const cell=row.c?.[index]; return [header,String(cell?.f ?? cell?.v ?? '').trim()];
+  })));
+}
+function loadGoogleSheet(raw) {
+  const sheet=googleSheetInfo(raw); if(!sheet) return Promise.reject(new Error('Это не ссылка на Google Таблицу'));
+  return new Promise((resolve,reject)=>{
+    const callbackName=`__medkarta_${Date.now()}_${Math.random().toString(36).slice(2)}`;
+    const script=document.createElement('script'); let settled=false;
+    const finish=(error,value)=>{ if(settled)return; settled=true; clearTimeout(timer); script.remove(); delete window[callbackName]; error ? reject(error) : resolve(value); };
+    const timer=setTimeout(()=>finish(new Error('Google Таблица не ответила вовремя')),15000);
+    window[callbackName]=payload=>{ try { finish(null,googleTableRows(payload)); } catch(error) { finish(error); } };
+    const params=new URLSearchParams({headers:'1',gid:sheet.gid,tqx:`out:json;responseHandler:${callbackName}`,_:String(Date.now())});
+    script.src=`https://docs.google.com/spreadsheets/d/${sheet.id}/gviz/tq?${params}`;
+    script.async=true; script.onerror=()=>finish(new Error('Не удалось загрузить Google Таблицу'));
+    document.head.append(script);
+  });
+}
+async function loadCsv(raw) {
+  const csvUrl=googleCsvUrl(raw); const separator=csvUrl.includes('?')?'&':'?';
+  const controller=typeof AbortController==='function' ? new AbortController() : null;
+  const timeout=setTimeout(()=>controller?.abort(),10000);
+  try {
+    const request=fetch(`${csvUrl}${separator}_=${Date.now()}`,{cache:'no-store',signal:controller?.signal});
+    const response=controller ? await request : await Promise.race([request,new Promise((_,reject)=>setTimeout(()=>reject(new Error('Источник не ответил вовремя')),10000))]);
+    if(!response.ok) throw new Error('Не удалось получить таблицу');
+    return parseCsv(await response.text());
+  } finally { clearTimeout(timeout); }
+}
+async function loadSourceRows(raw) {
+  if(googleSheetInfo(raw)) {
+    try { return await loadGoogleSheet(raw); }
+    catch(jsonpError) { try { return await loadCsv(raw); } catch { throw jsonpError; } }
+  }
+  return loadCsv(raw);
+}
 function parseCsv(input) { const rows=[]; let row=[], cell='', quoted=false; for(let i=0;i<input.length;i++){ const c=input[i], n=input[i+1]; if(c==='"' && quoted && n==='"'){cell+='"';i++;} else if(c==='"'){quoted=!quoted;} else if(c===',' && !quoted){row.push(cell);cell='';} else if((c==='\n' || c==='\r') && !quoted){ if(c==='\r'&&n==='\n')i++;row.push(cell); if(row.some(v=>v.trim()))rows.push(row);row=[];cell='';} else cell+=c; } row.push(cell); if(row.some(v=>v.trim()))rows.push(row); if(rows.length<2)return []; const headers=rows.shift().map(x=>x.trim().toLowerCase()); return rows.map(row=>Object.fromEntries(headers.map((h,i)=>[h,(row[i]||'').trim()]))); }
 function sourcePlacement(address = '', index = 0) {
   const value = address.toLocaleLowerCase('ru'); let district='Центр', base=[51, 42];
@@ -299,10 +343,7 @@ async function syncSourceSheet({ rawUrl=activeSourceUrl(), notify=false }={}) {
   if(syncPromise) return syncPromise;
   setSyncStatus('syncing','Обновляем данные…');
   syncPromise=(async()=>{
-    const csvUrl=googleCsvUrl(rawUrl); const separator=csvUrl.includes('?')?'&':'?';
-    const response=await fetch(`${csvUrl}${separator}_=${Date.now()}`,{cache:'no-store'});
-    if(!response.ok) throw new Error('Не удалось получить таблицу');
-    const imported=normalizeImported(parseCsv(await response.text()));
+    const imported=normalizeImported(await loadSourceRows(rawUrl));
     if(!imported.length) throw new Error('В таблице не нашлось подходящих строк');
     records=mergeSourceRecords(imported); saveRecords(); activeId=null; renderAll();
     lastSuccessfulSync=Date.now(); localStorage.setItem(LAST_SYNC_KEY,String(lastSuccessfulSync));
