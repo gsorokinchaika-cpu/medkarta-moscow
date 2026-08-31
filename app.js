@@ -1,4 +1,9 @@
 const STORAGE_KEY = 'medkarta-records-v1';
+const SOURCE_URL_KEY = 'medkarta-sheet-url';
+const LAST_SYNC_KEY = 'medkarta-last-sync';
+const DELETED_SOURCE_KEY = 'medkarta-deleted-source-records';
+const DEFAULT_SOURCE_URL = 'https://docs.google.com/spreadsheets/d/1w55BqwgeNZTaxhsiq6tz3-UG9n92TwBu/edit?gid=723850286#gid=723850286';
+const SYNC_INTERVAL_MS = 5 * 60 * 1000;
 
 function classifyDirections(text = '') {
   const rules = [
@@ -51,11 +56,14 @@ const MOSCOW_CLINIC_LOCATIONS = {
   35:{name:'ГВВ №2',address:'Волгоградский проспект, 168',lat:55.6900537,lng:37.8126976}
 };
 function normalizeLocationName(value = '') { return value.toLocaleLowerCase('ru').replace(/[«»"№.,]/g, '').replace(/\s+/g, ' ').trim(); }
-function knownLocation(name = '') { return Object.values(MOSCOW_CLINIC_LOCATIONS).find(location => normalizeLocationName(location.name) === normalizeLocationName(name)); }
+function knownLocation(name = '') {
+  const found = Object.entries(MOSCOW_CLINIC_LOCATIONS).find(([, location]) => normalizeLocationName(location.name) === normalizeLocationName(name));
+  return found ? { ...found[1], id:`clinic-${found[0]}` } : undefined;
+}
 function sourceClinic(id, name, services, metro, note, district, x, y) {
   const directions = classifyDirections(services);
   const location = MOSCOW_CLINIC_LOCATIONS[id];
-  return { id:`clinic-${id}`, name, type:'clinic', specialty:directions[0], directions, district, metro, price:'', services, note, x, y, address:location?.address || '', lat:location?.lat, lng:location?.lng };
+  return { id:`clinic-${id}`, name, type:'clinic', specialty:directions[0], directions, district, metro, price:'', services, note, x, y, address:location?.address || '', lat:location?.lat, lng:location?.lng, _source:'sheet' };
 }
 
 // Снимок первой вкладки каталога от 28.08.2026. Обновляется из CSV через интерфейс.
@@ -107,10 +115,12 @@ const els = {
   resultList: $('#resultList'), resultCount: $('#resultsCount'), mapCount: $('#mapResultCount'),
   specialtyFilters: $('#specialtyFilters'), specialtyCount: $('#specialtyCount'), district: $('#districtFilter'),
   search: $('#searchInput'), empty: $('#emptyMapState'), resultPanel: $('#resultsPanel'), detailsDialog: $('#detailsDialog'), detailsTags: $('#detailsTags'), detailsContent: $('#detailsContent'), recordDialog: $('#recordDialog'),
-  recordForm: $('#recordForm'), deleteButton: $('#deleteRecord'), toast: $('#toast'), sheetDialog: $('#sheetDialog'), sheetForm: $('#sheetForm'), sheetMessage: $('#sheetMessage')
+  recordForm: $('#recordForm'), deleteButton: $('#deleteRecord'), toast: $('#toast'), sheetDialog: $('#sheetDialog'), sheetForm: $('#sheetForm'), sheetMessage: $('#sheetMessage'), syncStatus:$('#syncStatus'), syncNow:$('#syncNow')
 };
 let medicalMap = null;
 let markersLayer = null;
+let syncPromise = null;
+let lastSuccessfulSync = Number(localStorage.getItem(LAST_SYNC_KEY)) || 0;
 
 function loadRecords() {
   try {
@@ -118,12 +128,15 @@ function loadRecords() {
     if (!Array.isArray(local) || !local.length) return seedRecords;
     return local.map(record => {
       const location = knownLocation(record.name);
-      return location && !Number.isFinite(Number(record.lat)) ? { ...record, address:record.address || location.address, lat:location.lat, lng:location.lng } : record;
+      const updated = location && !Number.isFinite(Number(record.lat)) ? { ...record, address:record.address || location.address, lat:location.lat, lng:location.lng } : record;
+      return { ...updated, _source:updated._source || (location ? 'sheet' : 'local') };
     });
   }
   catch { return seedRecords; }
 }
 function saveRecords() { localStorage.setItem(STORAGE_KEY, JSON.stringify(records)); }
+function deletedSourceIds() { try { return new Set(JSON.parse(localStorage.getItem(DELETED_SOURCE_KEY)) || []); } catch { return new Set(); } }
+function rememberDeletedSource(id) { const deleted=deletedSourceIds(); deleted.add(id); localStorage.setItem(DELETED_SOURCE_KEY, JSON.stringify([...deleted])); }
 function escapeHtml(value = '') { return String(value).replace(/[&<>'"]/g, char => ({'&':'&amp;','<':'&lt;','>':'&gt;',"'":'&#039;','"':'&quot;'}[char])); }
 function icon(type) { const paths = { doctor:'<path d="M12 12a3.5 3.5 0 1 0 0-7 3.5 3.5 0 0 0 0 7ZM5 20c.5-3.3 2.8-5 7-5s6.5 1.7 7 5"/>', clinic:'<path d="M5 20V7h14v13M9 7V4h6v3M9 12h.01M15 12h.01M9 16h.01M15 16h.01"/>', research:'<path d="M9 3h6M10 3v6l-4 7a3 3 0 0 0 2.6 4h6.8A3 3 0 0 0 18 16l-4-7V3M8.5 16h7"/>' }; return `<svg viewBox="0 0 24 24" aria-hidden="true">${paths[type]}</svg>`; }
 function typeName(type) { return ({doctor:'Врач',clinic:'Клиника',research:'Исследование'})[type] || 'Запись'; }
@@ -217,7 +230,7 @@ $('#typeFilters').addEventListener('click', event => { const button = event.targ
 els.search.addEventListener('input', () => { filters.query = els.search.value; render(); });
 els.district.addEventListener('change', () => { filters.district = els.district.value; render(); });
 $('#resetFilters').addEventListener('click', () => { filters = {query:'',type:'all',specialties:new Set(),district:''}; els.search.value=''; $('#typeFilters').querySelectorAll('button').forEach(b=>b.classList.toggle('is-active',b.dataset.type==='all')); renderAll(); });
-$('#addRecord').addEventListener('click', openAdd); $('#openSheetDialog').addEventListener('click', () => { els.sheetMessage.textContent=''; $('#sheetUrl').value = localStorage.getItem('medkarta-sheet-url') || ''; els.sheetDialog.showModal(); });
+$('#addRecord').addEventListener('click', openAdd); $('#openSheetDialog').addEventListener('click', () => { els.sheetMessage.textContent=''; $('#sheetUrl').value = activeSourceUrl(); els.sheetDialog.showModal(); });
 document.querySelectorAll('[data-close-dialog]').forEach(button => button.addEventListener('click', () => $(`#${button.dataset.closeDialog}`).close()));
 $('#editRecord').addEventListener('click', () => { if (activeId) openEdit(activeId); });
 els.recordForm.addEventListener('submit', event => {
@@ -229,11 +242,13 @@ els.recordForm.addEventListener('submit', event => {
   entry.id = id; entry.x = Number(placement.x); entry.y = Number(placement.y);
   entry.address = previous?.address || location?.address || '';
   entry.lat = previous?.lat ?? location?.lat; entry.lng = previous?.lng ?? location?.lng;
+  entry._source = previous?._source || 'local';
+  entry._localOverride = previous?._source === 'sheet' || previous?._localOverride || false;
   entry.directions = classifyDirections(`${entry.specialty} ${entry.services}`);
   if (index >= 0) records[index] = entry; else records.unshift(entry);
   saveRecords(); activeId=id; els.recordDialog.close(); renderAll(); showToast(index >= 0 ? 'Карточка сохранена' : 'Карточка добавлена');
 });
-els.deleteButton.addEventListener('click', () => { const id=$('#recordId').value; records=records.filter(r=>r.id!==id); activeId=null; saveRecords(); els.recordDialog.close(); renderAll(); showToast('Карточка удалена'); });
+els.deleteButton.addEventListener('click', () => { const id=$('#recordId').value; const record=records.find(r=>r.id===id); if(record?._source==='sheet') rememberDeletedSource(id); records=records.filter(r=>r.id!==id); activeId=null; saveRecords(); els.recordDialog.close(); renderAll(); showToast('Карточка удалена'); });
 $('#closeResults').addEventListener('click', () => { els.resultPanel.classList.add('is-hidden'); $('#listToggle').classList.remove('is-selected'); }); $('#listToggle').addEventListener('click', () => { els.resultPanel.classList.toggle('is-hidden'); $('#listToggle').classList.toggle('is-selected', !els.resultPanel.classList.contains('is-hidden')); });
 $('#locateButton').addEventListener('click', () => { activeId=null; render(); if (medicalMap) medicalMap.setView([55.753, 37.62], 10.4, { animate:true }); showToast('Карта центрирована на Москве'); });
 $('#openSidebar').addEventListener('click', () => $('#sidebar').classList.add('is-open')); $('#closeSidebar').addEventListener('click', () => $('#sidebar').classList.remove('is-open'));
@@ -252,16 +267,69 @@ function sourcePlacement(address = '', index = 0) {
 }
 function extractMetro(address = '') { return (address.match(/(?:метро|м\.)\s*([^.,;]+)/i) || [])[1]?.trim() || ''; }
 function optionalNumber(value) { return value === '' || value === undefined ? null : Number(value); }
+function stableSourceId(value = '') { let hash=2166136261; for(const char of value){ hash^=char.charCodeAt(0); hash=Math.imul(hash,16777619); } return `sheet-${(hash>>>0).toString(36)}`; }
 function normalizeImported(rows) {
   const validTypes=['doctor','clinic','research'];
   return rows.map((r,index) => {
     const address=r.address || r['адрес'] || ''; const name=r.name || r['фио'] || r['название'] || r['краткое название'] || '';
     const placement=sourcePlacement(address, index); const location=knownLocation(name); const services=r.services || r['услуги'] || r['основные направления'] || r.specialty || r['направление'] || '';
     const directions=classifyDirections(services); const x=optionalNumber(r.x); const y=optionalNumber(r.y); const lat=optionalNumber(r.lat || r.latitude); const lng=optionalNumber(r.lng || r.lon || r.longitude); const sourceFormat=[r['возраст'],r['уровень учреждения'],r['формат помощи'],r['экстренная госпитализация']==='Да'?'Экстренная госпитализация':'',r['плановая госпитализация']==='Да'?'Плановая госпитализация':''].filter(Boolean).join(' · ');
-    return { id:r.id || r[''] || `sheet-${Date.now()}-${index}`, name, type:validTypes.includes((r.type||'').toLowerCase()) ? r.type.toLowerCase() : (r['краткое название'] ? 'clinic' : 'doctor'), specialty:r.specialty || r['направление'] || directions[0], directions, district:r.district || r['район'] || placement.district, metro:r.metro || r['метро'] || extractMetro(address), price:r.price || r['стоимость'] || '', services, note:r.note || r['комментарий'] || r['общий комментарий'] || sourceFormat, address, lat:Number.isFinite(lat) ? lat : location?.lat, lng:Number.isFinite(lng) ? lng : location?.lng, x:Number.isFinite(x) ? x : placement.x, y:Number.isFinite(y) ? y : placement.y };
+    const sourceIdentity=r.id || r['id учреждения'] || r['id клиники'] || r[''] || name;
+    return { id:location?.id || stableSourceId(sourceIdentity), name, type:validTypes.includes((r.type||'').toLowerCase()) ? r.type.toLowerCase() : (r['краткое название'] ? 'clinic' : 'doctor'), specialty:r.specialty || r['направление'] || directions[0], directions, district:r.district || r['район'] || placement.district, metro:r.metro || r['метро'] || extractMetro(address), price:r.price || r['стоимость'] || '', services, note:r.note || r['комментарий'] || r['общий комментарий'] || sourceFormat, address, lat:Number.isFinite(lat) ? lat : location?.lat, lng:Number.isFinite(lng) ? lng : location?.lng, x:Number.isFinite(x) ? x : placement.x, y:Number.isFinite(y) ? y : placement.y, _source:'sheet' };
   }).filter(r=>r.name && r.specialty && r.district && r.x>=0 && r.x<=100 && r.y>=0 && r.y<=100);
 }
-els.sheetForm.addEventListener('submit', async event => { event.preventDefault(); const raw=$('#sheetUrl').value; if(!raw){els.sheetMessage.textContent='Вставьте ссылку на опубликованный CSV.';return;} const button=$('#importSheet'); button.disabled=true; button.textContent='Загружаем…'; els.sheetMessage.textContent=''; try { const response=await fetch(googleCsvUrl(raw)); if(!response.ok) throw new Error('Не удалось получить файл'); const imported=normalizeImported(parseCsv(await response.text())); if(!imported.length) throw new Error('Не нашлось подходящих строк. Проверьте названия колонок.'); records=imported; saveRecords(); localStorage.setItem('medkarta-sheet-url',raw); activeId=null; els.sheetDialog.close(); renderAll(); showToast(`Загружено карточек: ${imported.length}`); } catch(error) { els.sheetMessage.textContent=`${error.message}. Убедитесь, что именно лист опубликован как CSV и доступен по ссылке.`; } finally { button.disabled=false; button.textContent='Загрузить данные'; } });
+
+function mergeSourceRecords(imported) {
+  const deleted=deletedSourceIds(); const localById=new Map(records.map(record=>[record.id,record])); const localByName=new Map(records.map(record=>[normalizeLocationName(record.name),record]));
+  const merged=imported.filter(record=>!deleted.has(record.id)).map(sourceRecord=>{
+    const local=localById.get(sourceRecord.id) || localByName.get(normalizeLocationName(sourceRecord.name));
+    return local?._localOverride ? { ...sourceRecord, ...local, id:sourceRecord.id, _source:'sheet', _localOverride:true } : sourceRecord;
+  });
+  const sourceIds=new Set(merged.map(record=>record.id)); const sourceNames=new Set(merged.map(record=>normalizeLocationName(record.name)));
+  const localOnly=records.filter(record=>record._source!=='sheet' && !sourceIds.has(record.id) && !sourceNames.has(normalizeLocationName(record.name)));
+  return [...merged,...localOnly];
+}
+function activeSourceUrl() { return localStorage.getItem(SOURCE_URL_KEY) || DEFAULT_SOURCE_URL; }
+function setSyncStatus(state, text) {
+  els.syncStatus.className=`sync-status is-${state}`; els.syncStatus.querySelector('span').textContent=text;
+  els.syncNow.classList.toggle('is-spinning',state==='syncing'); els.syncNow.disabled=state==='syncing';
+}
+function formatSyncTime(timestamp) { return new Intl.DateTimeFormat('ru-RU',{hour:'2-digit',minute:'2-digit'}).format(new Date(timestamp)); }
+async function syncSourceSheet({ rawUrl=activeSourceUrl(), notify=false }={}) {
+  if(syncPromise) return syncPromise;
+  setSyncStatus('syncing','Обновляем данные…');
+  syncPromise=(async()=>{
+    const csvUrl=googleCsvUrl(rawUrl); const separator=csvUrl.includes('?')?'&':'?';
+    const response=await fetch(`${csvUrl}${separator}_=${Date.now()}`,{cache:'no-store'});
+    if(!response.ok) throw new Error('Не удалось получить таблицу');
+    const imported=normalizeImported(parseCsv(await response.text()));
+    if(!imported.length) throw new Error('В таблице не нашлось подходящих строк');
+    records=mergeSourceRecords(imported); saveRecords(); activeId=null; renderAll();
+    lastSuccessfulSync=Date.now(); localStorage.setItem(LAST_SYNC_KEY,String(lastSuccessfulSync));
+    setSyncStatus('success',`Обновлено в ${formatSyncTime(lastSuccessfulSync)} · ${imported.length} карточек`);
+    if(notify) showToast(`Данные обновлены: ${imported.length} карточек`);
+    return imported.length;
+  })();
+  try { return await syncPromise; }
+  catch(error) {
+    const fallback=lastSuccessfulSync ? `Последнее обновление в ${formatSyncTime(lastSuccessfulSync)}` : 'Работаем с сохранёнными данными';
+    setSyncStatus('error',fallback); throw error;
+  } finally { syncPromise=null; }
+}
+
+els.sheetForm.addEventListener('submit', async event => {
+  event.preventDefault(); const raw=$('#sheetUrl').value.trim(); if(!raw){els.sheetMessage.textContent='Вставьте ссылку на таблицу или CSV.';return;}
+  const button=$('#importSheet'); button.disabled=true; button.textContent='Загружаем…'; els.sheetMessage.textContent='';
+  try { await syncSourceSheet({rawUrl:raw,notify:true}); localStorage.setItem(SOURCE_URL_KEY,raw); els.sheetDialog.close(); }
+  catch(error) { els.sheetMessage.textContent=`${error.message}. Проверьте, что таблица доступна по ссылке.`; }
+  finally { button.disabled=false; button.textContent='Загрузить данные'; }
+});
+els.syncNow.addEventListener('click',()=>syncSourceSheet({notify:true}).catch(error=>showToast(error.message)));
 
 initializeMap();
 renderAll();
+$('#sheetUrl').value=activeSourceUrl();
+if(lastSuccessfulSync) setSyncStatus('success',`Последнее обновление в ${formatSyncTime(lastSuccessfulSync)}`);
+syncSourceSheet().catch(()=>{});
+setInterval(()=>syncSourceSheet().catch(()=>{}),SYNC_INTERVAL_MS);
+document.addEventListener('visibilitychange',()=>{ if(!document.hidden && Date.now()-lastSuccessfulSync>60000) syncSourceSheet().catch(()=>{}); });
