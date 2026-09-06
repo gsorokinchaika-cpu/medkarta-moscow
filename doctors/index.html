@@ -1,0 +1,189 @@
+<!doctype html>
+<html lang="ru">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <meta name="theme-color" content="#f6f8f5" />
+    <meta name="description" content="Каталог конкретных врачей из вашей медицинской базы: поиск, фильтры и карта." />
+    <title>МедКарта Врачи — специалисты Москвы</title>
+    <link rel="preconnect" href="https://fonts.googleapis.com" />
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+    <link href="https://fonts.googleapis.com/css2?family=DM+Mono:wght@400;500&family=Manrope:wght@400;500;600;700;800&family=Playfair+Display:ital,wght@0,600;0,700;1,600&display=swap" rel="stylesheet" />
+    <link rel="stylesheet" href="./vendor/leaflet/leaflet.css?v=1.9.4" />
+    <link rel="stylesheet" href="./styles.css?v=20260906-1" />
+  </head>
+  <body>
+    <main class="app-shell">
+      <aside class="sidebar" id="sidebar">
+        <div class="brand-row">
+          <a class="brand" href="#" aria-label="МедКарта Врачи — на главную">
+            <span class="brand-mark" aria-hidden="true"><i></i><i></i><i></i></span>
+            <span>Мед<span>Карта</span> <small>Врачи</small></span>
+          </a>
+          <button class="icon-button sidebar-close" id="closeSidebar" type="button" aria-label="Закрыть панель">×</button>
+        </div>
+
+        <section class="intro">
+          <p class="eyebrow">Ассистенту · Москва</p>
+          <h1>Найдите нужного<br /><em>специалиста</em></h1>
+          <p>Ищите по имени, специализации, клинике или проблеме. Данные перед записью лучше уточнить.</p>
+          <div class="source-meta">
+            <a class="source-link" href="https://docs.google.com/spreadsheets/d/1CPga4Apdbs0be4KxmbbWmRdvLKTCFwWVrytinJln1rU/edit?gid=1066498235#gid=1066498235" target="_blank" rel="noreferrer">Источник: ваша таблица ↗</a>
+            <button class="sync-now" id="syncNow" type="button" title="Обновить данные сейчас" aria-label="Обновить данные из таблицы">↻</button>
+          </div>
+          <p class="sync-status is-syncing" id="syncStatus" aria-live="polite"><i></i><span>Синхронизация…</span></p>
+        </section>
+
+        <label class="search-wrap" for="searchInput">
+          <svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="11" cy="11" r="6.5"></circle><path d="m16 16 4.5 4.5"></path></svg>
+          <input id="searchInput" type="search" placeholder="Врач, клиника или проблема" autocomplete="off" />
+          <kbd>⌘ K</kbd>
+        </label>
+
+        <section class="filters" aria-label="Фильтры">
+          <div class="filter-heading"><span>Для кого</span><button class="reset-link" id="resetFilters" type="button">Сбросить</button></div>
+          <div class="segmented" id="patientFilters" aria-label="Возраст пациентов">
+            <button class="is-active" type="button" data-patient="all">Все</button>
+            <button type="button" data-patient="adult">Взрослые</button>
+            <button type="button" data-patient="child">Дети</button>
+          </div>
+
+          <label class="online-filter">
+            <input id="onlineOnly" type="checkbox" />
+            <span><strong>Есть онлайн-приём</strong><small>Показывать подтверждённый формат</small></span>
+          </label>
+
+          <div class="filter-heading filter-heading-spaced"><span>Специализация</span><span class="filter-count" id="specialtyCount">0</span></div>
+          <div class="check-list" id="specialtyFilters"></div>
+
+          <div class="filter-heading filter-heading-spaced"><span>Часть города</span></div>
+          <div class="select-wrap">
+            <select id="districtFilter" aria-label="Выберите часть города">
+              <option value="">Все районы</option>
+            </select>
+          </div>
+        </section>
+
+        <div class="sidebar-actions">
+          <button class="sheet-button" id="openSheetDialog" type="button">
+            <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M7 3.5h8l3 3V20.5H7z"></path><path d="M15 3.5v4h3"></path><path d="M10 11h5M10 14.5h5M10 18h3"></path></svg>
+            Источник
+          </button>
+          <button class="add-button" id="addRecord" type="button"><span>+</span> Добавить врача</button>
+        </div>
+      </aside>
+
+      <section class="map-area">
+        <header class="map-header">
+          <button class="icon-button menu-button" id="openSidebar" type="button" aria-label="Открыть меню">
+            <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M4 7h16M4 12h16M4 17h16"></path></svg>
+          </button>
+          <div class="map-title"><span>Карта специалистов</span><strong id="mapResultCount">0</strong></div>
+          <div class="map-tools">
+            <button class="map-tool is-selected" id="listToggle" type="button" title="Показать список">
+              <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M5 7h14M5 12h14M5 17h14"></path></svg>
+              Список
+            </button>
+            <button class="map-tool" id="locateButton" type="button" title="Центрировать карту">
+              <svg viewBox="0 0 24 24" aria-hidden="true"><path d="m12 21 3-7 7-3-7-3-3-7-3 7-7 3 7 3z"></path></svg>
+              Центр
+            </button>
+          </div>
+        </header>
+
+        <div class="map-canvas" id="mapCanvas">
+          <div id="leafletMap" aria-label="Интерактивная карта мест приёма"></div>
+          <div class="map-note"><i></i><span>На карте показан первый адрес приёма</span></div>
+          <div class="empty-map-state" id="emptyMapState" hidden>По этим фильтрам<br />ничего не найдено</div>
+        </div>
+
+        <section class="results-panel" id="resultsPanel">
+          <div class="results-header">
+            <p><strong id="resultsCount">0</strong> специалистов</p>
+            <label class="sort-wrap">Сортировка
+              <select id="sortSelect" aria-label="Сортировка списка">
+                <option value="number">По списку</option>
+                <option value="name">По имени</option>
+                <option value="experience">По стажу</option>
+              </select>
+            </label>
+            <button id="closeResults" type="button" aria-label="Скрыть список">×</button>
+          </div>
+          <div class="result-list" id="resultList"></div>
+        </section>
+      </section>
+    </main>
+
+    <dialog class="modal details-modal" id="detailsDialog">
+      <section class="record-view">
+        <div class="modal-heading">
+          <div><p class="eyebrow" id="detailsEyebrow">Врач</p><h2 id="detailsTitle">Специалист</h2></div>
+          <button type="button" class="icon-button" data-close-dialog="detailsDialog" aria-label="Закрыть">×</button>
+        </div>
+        <div class="details-tags" id="detailsTags"></div>
+        <div class="details-summary" id="detailsSummary"></div>
+        <div class="details-content" id="detailsContent"></div>
+        <div class="details-source" id="detailsSource"></div>
+        <div class="details-actions">
+          <a class="call-button" id="callDoctor" href="#">Позвонить</a>
+          <button class="edit-button" type="button" id="editRecord">Редактировать карточку</button>
+        </div>
+      </section>
+    </dialog>
+
+    <dialog class="modal" id="recordDialog">
+      <form method="dialog" id="recordForm">
+        <div class="modal-heading">
+          <div><p class="eyebrow" id="recordDialogEyebrow">Новый врач</p><h2 id="recordDialogTitle">Добавить специалиста</h2></div>
+          <button type="button" class="icon-button" data-close-dialog="recordDialog" aria-label="Закрыть">×</button>
+        </div>
+        <input type="hidden" id="recordId" name="recordId" />
+        <div class="form-grid">
+          <label class="wide">ФИО врача<input id="name" name="name" required placeholder="Например, Анна Иванова" /></label>
+          <label class="wide">Клиника<input id="clinics" name="clinics" required placeholder="Название клиники" /></label>
+          <label class="wide">Специализация<input id="specialty" name="specialty" required placeholder="Например, кардиолог; аритмолог" /></label>
+          <label class="wide">Адрес / метро<input id="address" name="address" required placeholder="Москва, улица — м. Станция" /></label>
+          <label>Стаж<input id="experience" name="experience" placeholder="15 лет" /></label>
+          <label>Пациенты<input id="patients" name="patients" placeholder="Взрослые и дети" /></label>
+          <label>Телефон<input id="phone" name="phone" placeholder="+7 ..." /></label>
+          <label>Стоимость<input id="price" name="price" placeholder="от 5 000 ₽" /></label>
+          <label class="wide">Онлайн-консультация<input id="online" name="online" placeholder="Да / нет / уточнить" /></label>
+          <label class="wide">Ключевые направления<textarea id="problems" name="problems" rows="3" placeholder="С какими проблемами работает врач"></textarea></label>
+          <label class="wide">Комментарий<textarea id="comments" name="comments" rows="3" placeholder="Что важно уточнить при записи"></textarea></label>
+        </div>
+        <div class="form-actions">
+          <button type="button" class="delete-button" id="deleteRecord" hidden>Удалить</button>
+          <span></span>
+          <button type="button" class="cancel-button" data-close-dialog="recordDialog">Отмена</button>
+          <button class="save-button" value="default">Сохранить</button>
+        </div>
+      </form>
+    </dialog>
+
+    <dialog class="modal sheet-modal" id="sheetDialog">
+      <form method="dialog" id="sheetForm">
+        <div class="modal-heading">
+          <div><p class="eyebrow">Источник данных</p><h2>Подключить Google Sheets</h2></div>
+          <button type="button" class="icon-button" data-close-dialog="sheetDialog" aria-label="Закрыть">×</button>
+        </div>
+        <p class="modal-copy">Эта версия подключена к вкладке «Полные данные» вашей таблицы. Она проверяет обновления при открытии, каждые пять минут и по кнопке ↻.</p>
+        <label>Ссылка на таблицу или CSV<input id="sheetUrl" type="url" placeholder="https://docs.google.com/spreadsheets/..." /></label>
+        <details>
+          <summary>Какие колонки поддерживаются?</summary>
+          <p>ФИО врача, Клиника(и), Адрес / метро, Стаж, Учёная степень, Квалификация, Специализация, Ключевые направления / проблемы, Достижения, Пациенты, Телефон для записи, Стоимость, Онлайн-консультация, Дополнительные комментарии, Источники и Карточка.</p>
+        </details>
+        <p class="form-message" id="sheetMessage" role="status"></p>
+        <div class="form-actions">
+          <span></span><span></span>
+          <button type="button" class="cancel-button" data-close-dialog="sheetDialog">Отмена</button>
+          <button class="save-button" id="importSheet" value="default">Загрузить данные</button>
+        </div>
+      </form>
+    </dialog>
+
+    <div class="toast" id="toast" role="status"></div>
+    <script src="./vendor/leaflet/leaflet.js?v=1.9.4"></script>
+    <script src="./doctors-data.js?v=20260906-1"></script>
+    <script src="./app.js?v=20260906-1"></script>
+  </body>
+</html>
