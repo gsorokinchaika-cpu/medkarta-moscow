@@ -4,13 +4,13 @@
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
     <meta name="theme-color" content="#f6f8f5" />
-    <meta name="description" content="Каталог конкретных врачей из вашей медицинской базы: поиск, фильтры и карта." />
-    <title>МедКарта Врачи — специалисты Москвы</title>
+    <meta name="description" content="Врачи Москвы и медицинские учреждения Орска: специалисты, диагностика, лаборатории, стационары и круглосуточная помощь." />
+    <title>МедКарта — врачи и клиники Москвы и Орска</title>
     <link rel="preconnect" href="https://fonts.googleapis.com" />
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
     <link href="https://fonts.googleapis.com/css2?family=DM+Mono:wght@400;500&family=Manrope:wght@400;500;600;700;800&family=Playfair+Display:ital,wght@0,600;0,700;1,600&display=swap" rel="stylesheet" />
     <link rel="stylesheet" href="./vendor/leaflet/leaflet.css?v=1.9.4" />
-    <link rel="stylesheet" href="./styles.css?v=20260906-1" />
+    <link rel="stylesheet" href="./styles.css?v=20261119-2" />
   </head>
   <body>
     <main class="app-shell">
@@ -24,23 +24,29 @@
         </div>
 
         <section class="intro">
-          <p class="eyebrow">Ассистенту · Москва</p>
-          <h1>Найдите нужного<br /><em>специалиста</em></h1>
-          <p>Ищите по имени, специализации, клинике или проблеме. Данные перед записью лучше уточнить.</p>
-          <div class="source-meta">
-            <a class="source-link" href="https://docs.google.com/spreadsheets/d/1CPga4Apdbs0be4KxmbbWmRdvLKTCFwWVrytinJln1rU/edit?gid=1066498235#gid=1066498235" target="_blank" rel="noreferrer">Источник: ваша таблица ↗</a>
-            <button class="sync-now" id="syncNow" type="button" title="Обновить данные сейчас" aria-label="Обновить данные из таблицы">↻</button>
-          </div>
-          <p class="sync-status is-syncing" id="syncStatus" aria-live="polite"><i></i><span>Синхронизация…</span></p>
+          <p class="eyebrow" id="cityEyebrow">Москва и Орск</p>
+          <h1>Врачи, клиники<br />и <em>диагностика</em></h1>
+          <p>Специалисты, стационары и лаборатории. Выберите город и проверьте условия обращения в карточке.</p>
+          <p class="sync-status is-success" id="syncStatus" aria-live="polite"><i></i><span>Встроенный каталог · 62 врача · 37 учреждений/служб Орска</span></p>
+          <p class="facility-sync-status" id="facilitySyncStatus">Орск: 36 учреждений · 37 адресов на карте</p>
         </section>
 
         <label class="search-wrap" for="searchInput">
           <svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="11" cy="11" r="6.5"></circle><path d="m16 16 4.5 4.5"></path></svg>
-          <input id="searchInput" type="search" placeholder="Врач, клиника или проблема" autocomplete="off" />
+          <input id="searchInput" type="search" placeholder="Клиника, специалист, МРТ, анализы…" autocomplete="off" />
           <kbd>⌘ K</kbd>
         </label>
 
         <section class="filters" aria-label="Фильтры">
+          <div class="location-filters">
+            <label>Город<select id="cityFilter"><option value="">Все города</option><option value="Москва">Москва</option><option value="Орск">Орск</option></select></label>
+            <label>Что ищем<select id="typeFilter"><option value="">Все записи</option><option value="doctor">Врачи</option><option value="hospital">Стационары</option><option value="clinic">Амбулаторные клиники</option><option value="laboratory">Лаборатории</option><option value="diagnostic">Диагностические центры</option></select></label>
+          </div>
+          <label class="online-filter emergency-filter">
+            <input id="emergencyOnly" type="checkbox" />
+            <span><strong>Есть помощь круглосуточно</strong><small>Только подтверждённая служба 24/7</small></span>
+          </label>
+          <p class="emergency-help" id="emergencyHelp" hidden>Экстренная помощь: <a href="tel:112">112</a> или <a href="tel:103">103</a>. Круглосуточный стационар не означает приём по любому профилю: условия указаны в карточке.</p>
           <div class="filter-heading"><span>Для кого</span><button class="reset-link" id="resetFilters" type="button">Сбросить</button></div>
           <div class="segmented" id="patientFilters" aria-label="Возраст пациентов">
             <button class="is-active" type="button" data-patient="all">Все</button>
@@ -53,7 +59,7 @@
             <span><strong>Есть онлайн-приём</strong><small>Показывать подтверждённый формат</small></span>
           </label>
 
-          <div class="filter-heading filter-heading-spaced"><span>Специализация</span><span class="filter-count" id="specialtyCount">0</span></div>
+          <div class="filter-heading filter-heading-spaced"><span>Специалисты / диагностика</span><span class="filter-count" id="specialtyCount">0</span></div>
           <div class="check-list" id="specialtyFilters"></div>
 
           <div class="filter-heading filter-heading-spaced"><span>Часть города</span></div>
@@ -65,20 +71,16 @@
         </section>
 
         <div class="sidebar-actions">
-          <button class="sheet-button" id="openSheetDialog" type="button">
-            <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M7 3.5h8l3 3V20.5H7z"></path><path d="M15 3.5v4h3"></path><path d="M10 11h5M10 14.5h5M10 18h3"></path></svg>
-            Источник
-          </button>
           <button class="add-button" id="addRecord" type="button"><span>+</span> Добавить врача</button>
         </div>
       </aside>
 
-      <section class="map-area">
+      <section class="map-area results-visible">
         <header class="map-header">
           <button class="icon-button menu-button" id="openSidebar" type="button" aria-label="Открыть меню">
             <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M4 7h16M4 12h16M4 17h16"></path></svg>
           </button>
-          <div class="map-title"><span>Карта специалистов</span><strong id="mapResultCount">0</strong></div>
+          <div class="map-title"><span id="mapTitle">Врачи и клиники</span><strong id="mapResultCount">0</strong></div>
           <div class="map-tools">
             <button class="map-tool is-selected" id="listToggle" type="button" title="Показать список">
               <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M5 7h14M5 12h14M5 17h14"></path></svg>
@@ -93,22 +95,23 @@
 
         <div class="map-canvas" id="mapCanvas">
           <div id="leafletMap" aria-label="Интерактивная карта мест приёма"></div>
-          <div class="map-note"><i></i><span>На карте показан первый адрес приёма</span></div>
+          <div class="map-note"><i></i><span id="mapNote">На карте показан первый адрес приёма</span></div>
           <div class="empty-map-state" id="emptyMapState" hidden>По этим фильтрам<br />ничего не найдено</div>
         </div>
 
         <section class="results-panel" id="resultsPanel">
           <div class="results-header">
-            <p><strong id="resultsCount">0</strong> специалистов</p>
+            <p><strong id="resultsCount">0</strong> записей</p>
             <label class="sort-wrap">Сортировка
               <select id="sortSelect" aria-label="Сортировка списка">
                 <option value="number">По списку</option>
-                <option value="name">По имени</option>
+                <option value="name">По названию / ФИО</option>
                 <option value="experience">По стажу</option>
               </select>
             </label>
             <button id="closeResults" type="button" aria-label="Скрыть список">×</button>
           </div>
+          <p class="results-notice" id="resultsNotice" hidden></p>
           <div class="result-list" id="resultList"></div>
         </section>
       </section>
@@ -139,17 +142,27 @@
         </div>
         <input type="hidden" id="recordId" name="recordId" />
         <div class="form-grid">
-          <label class="wide">ФИО врача<input id="name" name="name" required placeholder="Например, Анна Иванова" /></label>
-          <label class="wide">Клиника<input id="clinics" name="clinics" required placeholder="Название клиники" /></label>
-          <label class="wide">Специализация<input id="specialty" name="specialty" required placeholder="Например, кардиолог; аритмолог" /></label>
+          <label class="wide"><span id="nameLabel">ФИО врача</span><input id="name" name="name" required placeholder="Название или ФИО" /></label>
+          <label>Город<select id="recordCity" name="city"><option>Москва</option><option>Орск</option></select></label>
+          <label class="wide doctor-field">Клиника<input id="clinics" name="clinics" required placeholder="Название клиники" /></label>
+          <label class="wide doctor-field">Специализация<input id="specialty" name="specialty" required placeholder="Например, кардиолог; аритмолог" /></label>
           <label class="wide">Адрес / метро<input id="address" name="address" required placeholder="Москва, улица — м. Станция" /></label>
-          <label>Стаж<input id="experience" name="experience" placeholder="15 лет" /></label>
+          <label class="doctor-field">Стаж<input id="experience" name="experience" placeholder="15 лет" /></label>
           <label>Пациенты<input id="patients" name="patients" placeholder="Взрослые и дети" /></label>
           <label>Телефон<input id="phone" name="phone" placeholder="+7 ..." /></label>
-          <label>Стоимость<input id="price" name="price" placeholder="от 5 000 ₽" /></label>
-          <label class="wide">Онлайн-консультация<input id="online" name="online" placeholder="Да / нет / уточнить" /></label>
-          <label class="wide">Ключевые направления<textarea id="problems" name="problems" rows="3" placeholder="С какими проблемами работает врач"></textarea></label>
-          <label class="wide">Комментарий<textarea id="comments" name="comments" rows="3" placeholder="Что важно уточнить при записи"></textarea></label>
+          <label class="doctor-field">Стоимость<input id="price" name="price" placeholder="от 5 000 ₽" /></label>
+          <label class="wide doctor-field">Онлайн-консультация<input id="online" name="online" placeholder="Да / нет / уточнить" /></label>
+          <label class="wide doctor-field">Ключевые направления<textarea id="problems" name="problems" rows="3" placeholder="С какими проблемами работает врач"></textarea></label>
+          <label class="wide doctor-field">Комментарий<textarea id="comments" name="comments" rows="3" placeholder="Что важно уточнить при записи"></textarea></label>
+          <label class="facility-field" hidden>Тип учреждения<select id="category" name="category"><option value="hospital">Стационар</option><option value="clinic">Амбулаторная клиника</option><option value="laboratory">Лаборатория</option><option value="diagnostic">Диагностический центр</option></select></label>
+          <label class="facility-field wide" hidden>Специалисты (через точку с запятой)<textarea id="specialties" name="specialties" rows="2"></textarea></label>
+          <label class="facility-field wide" hidden>Диагностика (через точку с запятой)<textarea id="diagnostics" name="diagnostics" rows="2"></textarea></label>
+          <label class="facility-field wide" hidden>Режим работы<textarea id="hours" name="hours" rows="2"></textarea></label>
+          <label class="facility-field wide" hidden>Порядок обращения<textarea id="access" name="access" rows="2"></textarea></label>
+          <label class="facility-field" hidden>Круглосуточная служба<select id="emergency24h" name="emergency24h"><option value="false">Не подтверждена</option><option value="true">Подтверждена</option></select></label>
+          <label class="facility-field wide" hidden>Какая помощь доступна круглосуточно<textarea id="emergencyDetails" name="emergencyDetails" rows="2"></textarea></label>
+          <label class="facility-field wide" hidden>Сайт<input id="website" name="website" type="url" /></label>
+          <label class="facility-field wide" hidden>Примечания<textarea id="notes" name="notes" rows="2"></textarea></label>
         </div>
         <div class="form-actions">
           <button type="button" class="delete-button" id="deleteRecord" hidden>Удалить</button>
@@ -160,30 +173,10 @@
       </form>
     </dialog>
 
-    <dialog class="modal sheet-modal" id="sheetDialog">
-      <form method="dialog" id="sheetForm">
-        <div class="modal-heading">
-          <div><p class="eyebrow">Источник данных</p><h2>Подключить Google Sheets</h2></div>
-          <button type="button" class="icon-button" data-close-dialog="sheetDialog" aria-label="Закрыть">×</button>
-        </div>
-        <p class="modal-copy">Эта версия подключена к вкладке «Полные данные» вашей таблицы. Она проверяет обновления при открытии, каждые пять минут и по кнопке ↻.</p>
-        <label>Ссылка на таблицу или CSV<input id="sheetUrl" type="url" placeholder="https://docs.google.com/spreadsheets/..." /></label>
-        <details>
-          <summary>Какие колонки поддерживаются?</summary>
-          <p>ФИО врача, Клиника(и), Адрес / метро, Стаж, Учёная степень, Квалификация, Специализация, Ключевые направления / проблемы, Достижения, Пациенты, Телефон для записи, Стоимость, Онлайн-консультация, Дополнительные комментарии, Источники и Карточка.</p>
-        </details>
-        <p class="form-message" id="sheetMessage" role="status"></p>
-        <div class="form-actions">
-          <span></span><span></span>
-          <button type="button" class="cancel-button" data-close-dialog="sheetDialog">Отмена</button>
-          <button class="save-button" id="importSheet" value="default">Загрузить данные</button>
-        </div>
-      </form>
-    </dialog>
-
     <div class="toast" id="toast" role="status"></div>
     <script src="./vendor/leaflet/leaflet.js?v=1.9.4"></script>
     <script src="./doctors-data.js?v=20260906-1"></script>
-    <script src="./app.js?v=20260906-1"></script>
+    <script src="./orsk-data.js?v=20261119-2"></script>
+    <script src="./app.js?v=20261119-2"></script>
   </body>
 </html>

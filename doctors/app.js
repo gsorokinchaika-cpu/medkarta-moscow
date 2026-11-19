@@ -1,11 +1,9 @@
 const STORAGE_KEY = 'medkarta-doctors-records-v1';
-const SOURCE_URL_KEY = 'medkarta-doctors-sheet-url';
-const LAST_SYNC_KEY = 'medkarta-doctors-last-sync';
 const DELETED_SOURCE_KEY = 'medkarta-doctors-deleted-source-records';
-const SOURCE_SHEET_ID = '1CPga4Apdbs0be4KxmbbWmRdvLKTCFwWVrytinJln1rU';
-const FULL_DATA_GID = '1184670681';
-const DEFAULT_SOURCE_URL = 'https://docs.google.com/spreadsheets/d/1CPga4Apdbs0be4KxmbbWmRdvLKTCFwWVrytinJln1rU/edit?gid=1066498235#gid=1066498235';
-const SYNC_INTERVAL_MS = 5 * 60 * 1000;
+const CITY_KEY = 'medkarta-doctors-city';
+const FACILITY_SOURCE_STATE_KEY = 'medkarta-doctors-facility-source-state-v1';
+const CATEGORY_LABELS = { doctor: 'Врач', hospital: 'Стационар', clinic: 'Амбулаторная клиника', laboratory: 'Лаборатория', diagnostic: 'Диагностический центр' };
+const CITY_VIEWS = { Москва: { center: [55.753, 37.62], zoom: 10.4 }, Орск: { center: [51.229, 58.474], zoom: 12 } };
 
 const LOCATION_HINTS = [
   [/профсоюзн(?:ая|ой)[^;]*76/i, 55.6580, 37.5408],
@@ -85,16 +83,18 @@ const els = {
   detailsSummary: $('#detailsSummary'), detailsContent: $('#detailsContent'), detailsSource: $('#detailsSource'),
   callDoctor: $('#callDoctor'), recordDialog: $('#recordDialog'), recordForm: $('#recordForm'),
   deleteButton: $('#deleteRecord'), sheetDialog: $('#sheetDialog'), sheetForm: $('#sheetForm'),
-  sheetMessage: $('#sheetMessage'), syncStatus: $('#syncStatus'), syncNow: $('#syncNow')
+  sheetMessage: $('#sheetMessage'), syncStatus: $('#syncStatus'), syncNow: $('#syncNow'),
+  city: $('#cityFilter'), type: $('#typeFilter'), emergencyOnly: $('#emergencyOnly'),
+  facilitySyncStatus: $('#facilitySyncStatus'), resultsNotice: $('#resultsNotice')
 };
 
-let filters = { query: '', patient: 'all', specialties: new Set(), district: '', onlineOnly: false, sort: 'number' };
+const requestedCity = new URLSearchParams(window.location.search).get('city');
+const initialCity = requestedCity !== null ? requestedCity : (localStorage.getItem(CITY_KEY) ?? 'Москва');
+let filters = { query: '', city: ['Москва', 'Орск'].includes(initialCity) ? initialCity : '', type: '', emergencyOnly: false, patient: 'all', specialties: new Set(), district: '', onlineOnly: false, sort: 'number' };
 let activeId = null;
 let medicalMap = null;
 let markersLayer = null;
 let usesFallbackMap = false;
-let syncPromise = null;
-let lastSuccessfulSync = Number(localStorage.getItem(LAST_SYNC_KEY)) || 0;
 
 function normalizeText(value = '') {
   return String(value).toLocaleLowerCase('ru').replace(/ё/g, 'е').replace(/\s+/g, ' ').trim();
@@ -134,7 +134,8 @@ function districtFromLocation(address, lat, lng) {
   return 'Центр';
 }
 
-function resolveLocation(address = '', identity = '') {
+function resolveLocation(address = '', identity = '', city = 'Москва') {
+  if (city !== 'Москва' || /(?:^|[^а-яё])орск(?:$|[^а-яё])/iu.test(address)) return { lat: null, lng: null, district: 'Не указано', approximate: true };
   const match = LOCATION_HINTS.find(([expression]) => expression.test(address));
   if (match) {
     const [, lat, lng] = match;
@@ -168,7 +169,20 @@ function specialtyGroups(record) {
 }
 
 function patientKinds(record) {
+  if (Array.isArray(record.patientGroups)) {
+    return [...new Set(record.patientGroups.filter(value => value === 'adult' || value === 'child'))];
+  }
   const value = normalizeText(record.patients);
+  if (record.type === 'facility' || record.category) {
+    const confirmedClauses = value.split(/[;\n.]|,\s*(?=(?:дет|реб|новорожд|взросл|женщ))/i).filter(clause =>
+      !/уточн|не подтверж|не указ|неизвест|возможност|по запросу|нет данных|не принима|не вед[её]т|не провод|не оказыва|отсутств|без дет|дет[^;]*(?:нет|недоступ)/.test(clause)
+    );
+    const confirmed = confirmedClauses.join('; ');
+    const kinds = [];
+    if (/взрос|18\s*(?:\+|лет)|женщин|беременн|рожениц/.test(confirmed)) kinds.push('adult');
+    if (/дет|подрост|ребен|новорожден/.test(confirmed)) kinds.push('child');
+    return kinds;
+  }
   const kinds = [];
   if (/дет|подрост|ребен/.test(value)) kinds.push('child');
   if (/взрос|18\+|пациентк|только взросл/.test(value)) kinds.push('adult');
@@ -183,10 +197,12 @@ function hasConfirmedOnline(record) {
 }
 
 function enrichRecord(record, index = 0) {
+  if (record.type === 'facility' || record.category) return enrichFacility(record, index);
   const id = record.id || `local-doctor-${Date.now()}-${index}`;
-  const resolved = resolveLocation(record.address, `${id}-${record.name}`);
-  const lat = Number.isFinite(Number(record.lat)) ? Number(record.lat) : resolved.lat;
-  const lng = Number.isFinite(Number(record.lng)) ? Number(record.lng) : resolved.lng;
+  const city = record.city || 'Москва';
+  const resolved = resolveLocation(record.address, `${id}-${record.name}`, city);
+  const lat = validCoordinate(record.lat, 90) ? Number(record.lat) : resolved.lat;
+  const lng = validCoordinate(record.lng, 180) ? Number(record.lng) : resolved.lng;
   const enriched = {
     number: String(record.number || ''),
     name: String(record.name || '').trim(),
@@ -200,6 +216,7 @@ function enrichRecord(record, index = 0) {
     problems: String(record.problems || '').trim(),
     achievements: String(record.achievements || '').trim(),
     patients: String(record.patients || '').trim(),
+    patientGroups: Array.isArray(record.patientGroups) ? record.patientGroups.filter(value => value === 'adult' || value === 'child') : undefined,
     phone: String(record.phone || '').trim(),
     price: String(record.price || '').trim(),
     online: String(record.online || '').trim(),
@@ -207,6 +224,7 @@ function enrichRecord(record, index = 0) {
     sources: Array.isArray(record.sources) ? record.sources.filter(Boolean) : String(record.sources || '').split(/\s*;\s*/).filter(Boolean),
     verifiedAt: String(record.verifiedAt || '').trim(),
     id,
+    city,
     type: 'doctor',
     lat,
     lng,
@@ -221,16 +239,173 @@ function enrichRecord(record, index = 0) {
   return enriched;
 }
 
-const seedRecords = (Array.isArray(window.DOCTORS_SEED) ? window.DOCTORS_SEED : []).map(enrichRecord);
+function validCoordinate(value, limit) {
+  return value !== null && value !== undefined && String(value).trim() !== '' && Number.isFinite(Number(value)) && Math.abs(Number(value)) <= limit;
+}
+
+function hasCoordinates(value) {
+  return validCoordinate(value?.lat, 90) && validCoordinate(value?.lng, 180);
+}
+
+function isMobileService(record) {
+  return record.type === 'facility' && (record.mobileService === true || /выездная|по месту вызова/i.test(record.address));
+}
+
+function normalizeLocations(locations, fallbackAddress = '') {
+  return (Array.isArray(locations) ? locations : []).filter(location => location && typeof location === 'object').map(location => ({
+    ...location,
+    address: String(location.address || fallbackAddress).trim(),
+    lat: validCoordinate(location.lat, 90) ? Number(location.lat) : null,
+    lng: validCoordinate(location.lng, 180) ? Number(location.lng) : null,
+    source: String(location.source || '').trim(),
+    precision: String(location.precision || '').trim(),
+    note: String(location.note || '').trim()
+  }));
+}
+
+function mapLocations(record) {
+  if (isMobileService(record)) return [];
+  if (record.type === 'facility') {
+    const locations = normalizeLocations(record.locations, record.address).filter(hasCoordinates);
+    if (locations.length) return locations;
+  }
+  return hasCoordinates(record) ? [{
+    address: record.address || '', lat: Number(record.lat), lng: Number(record.lng),
+    source: record.coordinateSource || '', precision: record.coordinatePrecision || '', note: ''
+  }] : [];
+}
+
+function addressKey(value = '') {
+  return normalizeText(value)
+    .replace(/(?:г\.?\s*)?орск(?=$|[\s,])/giu, '')
+    .replace(/оренбургская\s+область/giu, '')
+    .replace(/улица/giu, 'ул')
+    .replace(/проспект|пр-т/giu, 'пр')
+    .replace(/переулок/giu, 'пер')
+    .replace(/корпус/giu, 'корп')
+    .replace(/[^а-яa-z0-9]/giu, '');
+}
+
+function matchingLocationDonor(record, donor) {
+  if (!donor || record.id !== donor.id || record.city !== donor.city || isMobileService(record)) return [];
+  const recordAddress = addressKey(record.address);
+  if (!recordAddress) return [];
+  const points = mapLocations(donor);
+  if (recordAddress === addressKey(donor.address)) return points;
+  const addresses = new Set(String(record.address).split(/[;\n]/).map(addressKey).filter(Boolean));
+  return points.filter(location => addresses.has(addressKey(location.address)));
+}
+
+function supplementFacilityLocations(record, donors = []) {
+  if (record.type !== 'facility' || isMobileService(record)) return record;
+  const fallbackPoints = donors.flatMap(donor => matchingLocationDonor(record, donor));
+  const points = mapLocations(record);
+  // A legacy single pin refers to the first address. Preserve its coordinates
+  // while allowing a newer multi-address snapshot to contribute other branches.
+  if (!normalizeLocations(record.locations, record.address).some(hasCoordinates) && points.length && fallbackPoints.length) {
+    points[0] = { ...points[0], address: fallbackPoints[0].address };
+  }
+  const knownAddresses = new Set(points.map(point => addressKey(point.address)));
+  for (const point of fallbackPoints) {
+    const key = addressKey(point.address);
+    if (knownAddresses.has(key)) continue;
+    points.push({ ...point });
+    knownAddresses.add(key);
+  }
+  if (!points.length) return record;
+  return { ...record, locations: points, lat: points[0].lat, lng: points[0].lng };
+}
+
+function textList(value) {
+  return (Array.isArray(value) ? value : String(value || '').split(/[;\n]/)).map(item => String(item).trim()).filter(Boolean);
+}
+
+function facilityCategory(value = '') {
+  if (Object.hasOwn(CATEGORY_LABELS, value) && value !== 'doctor') return value;
+  const text = normalizeText(value);
+  if (/стационар|больниц|перинатальн|роддом|hospital/.test(text)) return 'hospital';
+  if (/лаборатор|laborator/.test(text)) return 'laboratory';
+  if (/диагност|diagnost/.test(text)) return 'diagnostic';
+  return 'clinic';
+}
+
+function enrichFacility(record, index = 0) {
+  const specialties = textList(record.specialties);
+  const diagnostics = textList(record.diagnostics);
+  const category = facilityCategory(record.category);
+  const categoryLabel = record.categoryLabel || (Object.hasOwn(CATEGORY_LABELS, record.category) ? CATEGORY_LABELS[category] : String(record.category || CATEGORY_LABELS[category]));
+  const enriched = {
+    ...record,
+    id: record.id || `orsk-${stableHash(`${record.name}-${record.address}-${index}`).toString(36)}`,
+    type: 'facility', city: String(record.city || 'Орск'), category, categoryLabel,
+    name: String(record.name || '').trim(), address: String(record.address || '').trim(),
+    phone: String(record.phone || '').trim(), hours: String(record.hours || '').trim(),
+    patients: String(record.patients || '').trim(), access: String(record.access || '').trim(),
+    website: String(record.website || '').trim(), notes: String(record.notes || '').trim(),
+    emergency24h: record.emergency24h === true || /^(?:да|true)$/i.test(String(record.emergency24h || '').trim()),
+    emergencyDetails: String(record.emergencyDetails || '').trim(),
+    specialties, diagnostics, sources: textList(record.sources),
+    verifiedAt: String(record.verifiedAt || '').trim(),
+    timezone: String(record.timezone || 'Asia/Yekaterinburg (UTC+5)'),
+    lat: validCoordinate(record.lat, 90) ? Number(record.lat) : null,
+    lng: validCoordinate(record.lng, 180) ? Number(record.lng) : null,
+    locations: normalizeLocations(record.locations, record.address),
+    district: record.district || 'Не указано', metro: '',
+    specialty: [...specialties, ...diagnostics].join(' · '), clinics: categoryLabel,
+    directions: [...new Set([...specialties, ...diagnostics, ...diagnostics.filter(value => /^МРТ(?=$|[\s.,:;/()-])/iu.test(value)).map(() => 'МРТ')])], hasOnline: false,
+    _source: record._source || 'orsk-snapshot', _localOverride: Boolean(record._localOverride)
+  };
+  enriched.patientKinds = patientKinds(enriched);
+  return enriched;
+}
+
+const doctorSeedRecords = (Array.isArray(window.DOCTORS_SEED) ? window.DOCTORS_SEED : []).map(enrichRecord);
+const facilitySeedRecords = (Array.isArray(window.ORSK_FACILITIES) ? window.ORSK_FACILITIES : []).map(enrichFacility);
+const facilitySeedById = new Map(facilitySeedRecords.map(record => [record.id, record]));
+const seedRecords = [...doctorSeedRecords, ...facilitySeedRecords];
+
+function authoritativeFacilityIds() {
+  try {
+    const saved = JSON.parse(localStorage.getItem(FACILITY_SOURCE_STATE_KEY));
+    return Array.isArray(saved?.ids) ? new Set(saved.ids) : null;
+  } catch { return null; }
+}
+
+function mergeFacilitySnapshot(local) {
+  const deleted = deletedSourceIds();
+  const authoritativeIds = authoritativeFacilityIds();
+  const keep = record => record.type !== 'facility' || !authoritativeIds || authoritativeIds.has(record.id) || record._source === 'local' || record._localOverride;
+  const existing = new Map(local.filter(keep).map(record => [record.id, record]));
+  facilitySeedRecords.forEach(record => {
+    if (deleted.has(record.id) || (authoritativeIds && !authoritativeIds.has(record.id))) return;
+    const cached = existing.get(record.id);
+    // Refresh bundled data even for same-day corrections. Successfully synced
+    // source rows and local edits keep priority over the bundled snapshot.
+    if (!cached || (!cached._localOverride && cached._source === 'orsk-snapshot' && record.verifiedAt >= (cached.verifiedAt || ''))) existing.set(record.id, record);
+  });
+  return [...existing.values()].filter(record => !deleted.has(record.id)).map(record =>
+    supplementFacilityLocations(record, [facilitySeedById.get(record.id)])
+  );
+}
 
 function loadRecords() {
+  let cached = [];
   try {
-    const local = JSON.parse(localStorage.getItem(STORAGE_KEY));
-    if (!Array.isArray(local) || !local.length) return seedRecords;
-    return local.map(enrichRecord);
-  } catch {
-    return seedRecords;
-  }
+    const saved = JSON.parse(localStorage.getItem(STORAGE_KEY));
+    if (Array.isArray(saved)) cached = saved.map(enrichRecord);
+  } catch {}
+  const deleted = deletedSourceIds();
+  const byId = new Map(cached.map(record => [record.id, record]));
+  const bundledIds = new Set(seedRecords.map(record => record.id));
+  const bundled = seedRecords.filter(record => !deleted.has(record.id)).map(record => {
+    const local = byId.get(record.id);
+    const current = local?._localOverride || local?._source === 'local'
+      ? enrichRecord({ ...record, ...local }) : record;
+    return supplementFacilityLocations(current, [facilitySeedById.get(record.id)]);
+  });
+  const personal = cached.filter(record => !bundledIds.has(record.id) && !deleted.has(record.id)
+    && (record._source === 'local' || record._localOverride));
+  return [...bundled, ...personal];
 }
 
 let records = loadRecords();
@@ -257,13 +432,18 @@ function searchableText(record) {
   return normalizeText([
     record.name, record.clinics, record.address, record.clinicSummary, record.experience,
     record.degree, record.qualification, record.specialty, record.problems, record.achievements,
-    record.patients, record.phone, record.price, record.online, record.comments
+    record.patients, record.phone, record.price, record.online, record.comments,
+    record.city, record.category, record.categoryLabel, record.specialties?.join(' '), record.diagnostics?.join(' '),
+    record.hours, record.access, record.emergencyDetails, record.notes, record.locations?.map(location => location.address).join(' ')
   ].join(' '));
 }
 
 function matches(record) {
   const term = normalizeText(filters.query);
   return (!term || searchableText(record).includes(term))
+    && (!filters.city || record.city === filters.city)
+    && (!filters.type || (record.type === 'doctor' ? filters.type === 'doctor' : record.category === filters.type))
+    && (!filters.emergencyOnly || record.emergency24h === true)
     && (filters.patient === 'all' || record.patientKinds.includes(filters.patient))
     && (!filters.specialties.size || record.directions.some(direction => filters.specialties.has(direction)))
     && (!filters.district || record.district === filters.district)
@@ -298,23 +478,28 @@ function shortPrice(value = '') {
 }
 
 function isMappable(record) {
-  return Number.isFinite(Number(record.lat)) && Number.isFinite(Number(record.lng));
+  return mapLocations(record).length > 0;
 }
 
-function displayCoordinates(record) {
+function displayCoordinates(record, location = mapLocations(record)[0]) {
+  if (record.type === 'facility') return [Number(location.lat), Number(location.lng)];
   const hash = stableHash(record.id);
   const angle = (hash % 360) * (Math.PI / 180);
   const radius = ((Math.floor(hash / 360) % 5) + 1) * 0.00042;
   return [Number(record.lat) + Math.sin(angle) * radius, Number(record.lng) + Math.cos(angle) * radius];
 }
 
-function markerIcon(record) {
+function mapEntries(list) {
+  return list.flatMap(record => mapLocations(record).map(location => ({ record, location, point: displayCoordinates(record, location) })));
+}
+
+function markerIcon(record, sharedCount = 1) {
   return L.divIcon({
     className: 'medical-map-marker',
     iconSize: [39, 46],
     iconAnchor: [19, 44],
     tooltipAnchor: [0, -38],
-    html: `<span class="leaflet-pin ${record.hasOnline ? 'is-online' : ''} ${activeId === record.id ? 'is-active' : ''}"></span>`
+    html: `<span class="leaflet-pin ${record.hasOnline ? 'is-online' : ''} ${activeId === record.id ? 'is-active' : ''}">${sharedCount > 1 ? `<b style="position:absolute;top:-7px;right:-7px;min-width:17px;padding:2px;border-radius:12px;background:#fff;color:#0f6850;font:700 10px Arial;text-align:center;transform:rotate(45deg)">${sharedCount}</b>` : ''}</span>`
   });
 }
 
@@ -324,7 +509,8 @@ function initializeMap() {
     $('#leafletMap').classList.add('fallback-map');
     return;
   }
-  medicalMap = L.map('leafletMap', { zoomControl: false, minZoom: 2, maxZoom: 16, preferCanvas: true }).setView([55.753, 37.62], 10.4);
+  const view = CITY_VIEWS[filters.city] || { center: [53.6, 47.5], zoom: 5 };
+  medicalMap = L.map('leafletMap', { zoomControl: false, minZoom: 2, maxZoom: 16, preferCanvas: true }).setView(view.center, view.zoom);
   L.control.zoom({ position: 'bottomright' }).addTo(medicalMap);
   L.tileLayer('https://tile.openstreetmap.org/{z}/{x}/{y}.png', {
     maxZoom: 19,
@@ -334,40 +520,54 @@ function initializeMap() {
 }
 
 function renderMapMarkers(list) {
+  const entries = mapEntries(list);
   if (usesFallbackMap) {
-    const north = 55.98;
-    const south = 55.50;
-    const west = 37.05;
-    const east = 37.95;
-    const mappable = list.filter(isMappable).map(record => ({ record, point: displayCoordinates(record) }))
+    const [south, north, west, east] = filters.city === 'Орск' ? [51.10, 51.36, 58.30, 58.70] : filters.city === 'Москва' ? [55.50, 55.98, 37.05, 37.95] : [50, 57, 36, 60];
+    const mappable = entries
       .filter(({ point }) => point[0] <= north && point[0] >= south && point[1] >= west && point[1] <= east);
     $('#leafletMap').innerHTML = `
-      <span class="fallback-label fallback-label-center">Москва</span>
+      <span class="fallback-label fallback-label-center">${escapeHtml(filters.city || 'Москва и Орск')}</span>
       <span class="fallback-label fallback-label-west">Запад</span>
       <span class="fallback-label fallback-label-east">Восток</span>
-      ${mappable.map(({ record, point }) => {
+      ${mappable.map(({ record, location, point }) => {
         const top = ((north - point[0]) / (north - south)) * 100;
         const left = ((point[1] - west) / (east - west)) * 100;
-        return `<button class="fallback-pin ${record.hasOnline ? 'is-online' : ''} ${activeId === record.id ? 'is-active' : ''}" type="button" data-id="${escapeHtml(record.id)}" style="left:${left.toFixed(2)}%;top:${top.toFixed(2)}%" aria-label="${escapeHtml(record.name)}" title="${escapeHtml(`${record.name} — ${record.specialty}`)}"><span>${escapeHtml(initials(record.name))}</span></button>`;
+        return `<button class="fallback-pin ${record.hasOnline ? 'is-online' : ''} ${activeId === record.id ? 'is-active' : ''}" type="button" data-id="${escapeHtml(record.id)}" data-address="${escapeHtml(location.address)}" style="left:${left.toFixed(2)}%;top:${top.toFixed(2)}%" aria-label="${escapeHtml(`${record.name} — ${location.address}`)}" title="${escapeHtml(`${record.name} — ${location.address}`)}"><span>${escapeHtml(initials(record.name))}</span></button>`;
       }).join('')}`;
     return;
   }
   if (!markersLayer) return;
   markersLayer.clearLayers();
-  list.filter(isMappable).forEach(record => {
-    const marker = L.marker(displayCoordinates(record), {
-      icon: markerIcon(record), keyboard: true, title: record.name
+  entries.forEach(({ record, location, point }) => {
+    const coincidentCount = entries.filter(entry => Math.abs(entry.point[0] - point[0]) < 0.000001 && Math.abs(entry.point[1] - point[1]) < 0.000001).length;
+    const marker = L.marker(point, {
+      icon: markerIcon(record, coincidentCount), keyboard: true, title: `${record.name} — ${location.address}`
     });
-    marker.bindTooltip(`<strong>${escapeHtml(record.name)}</strong><br>${escapeHtml(record.specialty)}<br><span>${escapeHtml(record.clinics)}</span>`, {
+    marker.bindTooltip(`<strong>${escapeHtml(record.name)}</strong><br>${escapeHtml(location.address)}<br><span>${escapeHtml(record.type === 'facility' ? record.categoryLabel : record.specialty)}</span>`, {
       direction: 'top', offset: [0, -24], className: 'medical-tooltip'
     });
-    marker.on('click', () => openDetails(record.id));
+    marker.on('click', () => {
+      const choices = overlappingMapEntries(entries, point);
+      if (choices.length > 1) {
+        marker.bindPopup(`<strong>Учреждения рядом — выберите адрес</strong>${choices.map(choice => `<button type="button" class="edit-button" style="display:block;width:100%;margin-top:8px;text-align:left" data-map-choice="${escapeHtml(choice.record.id)}" data-address="${escapeHtml(choice.location.address)}">${escapeHtml(choice.record.name)}<br><small>${escapeHtml(choice.location.address)}</small></button>`).join('')}`, { maxWidth: 340 }).openPopup();
+      } else openDetails(record.id, location.address);
+    });
     marker.addTo(markersLayer);
   });
 }
 
+function overlappingMapEntries(entries, point) {
+  if (!medicalMap?.latLngToContainerPoint) return entries.filter(entry => entry.point[0] === point[0] && entry.point[1] === point[1]);
+  const origin = medicalMap.latLngToContainerPoint(point);
+  return entries.filter(entry => {
+    const candidate = medicalMap.latLngToContainerPoint(entry.point);
+    return Math.hypot(candidate.x - origin.x, candidate.y - origin.y) <= 30;
+  });
+}
+
 function renderFilterOptions() {
-  const specialties = [...new Set(records.flatMap(record => record.directions).filter(Boolean))].sort((a, b) => a.localeCompare(b, 'ru'));
+  const scoped = records.filter(record => (!filters.city || record.city === filters.city) && (!filters.type || (record.type === 'doctor' ? filters.type === 'doctor' : record.category === filters.type)));
+  const specialties = [...new Set(scoped.flatMap(record => record.directions).filter(Boolean))].sort((a, b) => a.localeCompare(b, 'ru'));
   filters.specialties = new Set([...filters.specialties].filter(value => specialties.includes(value)));
   els.specialtyCount.textContent = specialties.length;
   els.specialtyFilters.innerHTML = specialties.map(specialty => `
@@ -376,22 +576,53 @@ function renderFilterOptions() {
       <span>${escapeHtml(specialty)}</span>
     </label>`).join('');
 
-  const districts = [...new Set(records.map(record => record.district).filter(Boolean))].sort((a, b) => a.localeCompare(b, 'ru'));
+  const districts = [...new Set(scoped.map(record => record.district).filter(value => value && value !== 'Не указано'))].sort((a, b) => a.localeCompare(b, 'ru'));
   if (!districts.includes(filters.district)) filters.district = '';
   els.district.innerHTML = '<option value="">Все районы</option>' + districts.map(district =>
     `<option value="${escapeHtml(district)}" ${filters.district === district ? 'selected' : ''}>${escapeHtml(district)}</option>`
   ).join('');
+  els.district.disabled = !districts.length;
+  els.city.value = filters.city;
+  els.type.value = filters.type;
+  $('#cityEyebrow').textContent = filters.city || 'Москва и Орск';
+  $('#mapTitle').textContent = filters.city ? `Врачи и клиники · ${filters.city}` : 'Врачи и клиники';
+  $('#emergencyHelp').hidden = filters.city === 'Москва' && !filters.emergencyOnly;
 }
 
 function render() {
   const list = currentRecords();
-  els.mapCount.textContent = list.length;
+  const entries = mapEntries(list);
+  els.mapCount.textContent = entries.length;
+  els.mapCount.title = `Адресов на карте: ${entries.length} · записей в списке: ${list.length}`;
   els.resultCount.textContent = list.length;
-  const onMoscowMap = list.filter(record => isMappable(record) && Number(record.lat) >= 55.50 && Number(record.lat) <= 55.98 && Number(record.lng) >= 37.05 && Number(record.lng) <= 37.95).length;
-  els.empty.innerHTML = list.length ? 'Адрес находится<br />вне карты Москвы' : 'По этим фильтрам<br />ничего не найдено';
-  els.empty.hidden = list.length > 0 && onMoscowMap > 0;
+  const onMap = list.filter(isMappable).length;
+  const mobileCount = list.filter(isMobileService).length;
+  const withoutCoordinates = list.length - onMap - mobileCount;
+  els.empty.innerHTML = list.length ? (mobileCount === list.length ? 'Выездная помощь: вызов по 103 или 112.<br />Адреса самостоятельного приёма нет.' : 'Координаты ещё не проверены.<br />Откройте адрес на карте<br />из карточки учреждения.') : 'По этим фильтрам<br />ничего не найдено';
+  els.empty.hidden = list.length > 0 && onMap > 0;
+  const facilitiesOnMap = list.filter(record => record.type === 'facility' && isMappable(record)).length;
+  const facilityAddresses = entries.filter(({ record }) => record.type === 'facility').length;
+  const notices = [];
+  if (facilitiesOnMap) notices.push(`Учреждений на карте: ${facilitiesOnMap} · адресов: ${facilityAddresses}.`);
+  if (mobileCount) notices.push(`Выездная помощь: ${mobileCount}.`);
+  if (withoutCoordinates) notices.push(`${withoutCoordinates} записей без проверенных координат; ссылка на адрес есть в карточке.`);
+  els.resultsNotice.hidden = !notices.length;
+  els.resultsNotice.textContent = notices.join(' ');
+  $('#mapNote').textContent = usesFallbackMap ? 'Карта недоступна: показана условная схема' : filters.city === 'Орск' ? 'Адреса учреждений Орска · местное время UTC+5' : 'Маркеры врачей ориентировочные; первый адрес приёма';
   renderMapMarkers(list);
-  els.resultList.innerHTML = list.map(record => `
+  els.resultList.innerHTML = list.map(record => record.type === 'facility' ? `
+    <button class="result-card facility-card ${activeId === record.id ? 'is-active' : ''}" data-id="${escapeHtml(record.id)}" type="button">
+      <span class="result-avatar facility-avatar">${record.category === 'laboratory' ? 'Л' : record.category === 'hospital' ? '+' : 'К'}</span>
+      <span class="result-card-content">
+        <span class="facility-card-kind">${escapeHtml(record.city)} · ${escapeHtml(record.categoryLabel)}</span>
+        <h3>${escapeHtml(record.name)}</h3>
+        <p>${escapeHtml(record.address || 'Адрес уточнить')}</p>
+        <p class="facility-services">${escapeHtml(record.specialty || 'Услуги уточнить')}</p>
+        <p class="facility-hours">${escapeHtml(record.hours || 'Режим уточнить')}</p>
+        ${record.phone ? `<p class="facility-phone">${escapeHtml(record.phone)}</p>` : ''}
+        <span class="result-card-meta"><span class="tag ${record.emergency24h ? 'tag-emergency' : ''}">${record.emergency24h ? 'Экстренная помощь 24/7' : 'Экстренный приём 24/7 не подтверждён'}</span><span class="verified-hint">${record.verifiedAt ? `Проверено ${escapeHtml(formatVerifiedDate(record.verifiedAt))}` : 'Дата проверки не указана'}</span></span>
+      </span>
+    </button>` : `
     <button class="result-card ${record.hasOnline ? 'is-online' : ''} ${activeId === record.id ? 'is-active' : ''}" data-id="${escapeHtml(record.id)}" type="button">
       <span class="result-avatar">${escapeHtml(initials(record.name))}</span>
       <span class="result-card-content">
@@ -427,8 +658,9 @@ function safeHttpUrl(value = '') {
 }
 
 function phoneHref(value = '') {
-  const first = String(value).split(/[;,]/)[0].replace(/[^\d+]/g, '');
-  return first.length >= 10 ? `tel:${first}` : '';
+  const first = String(value).split(/[;,\n]/)[0];
+  const number = first.match(/\+?\d[\d\s()−-]{7,}\d|\b(?:103|112)\b/)?.[0]?.replace(/[^\d+]/g, '');
+  return number ? `tel:${number}` : '';
 }
 
 function sourceLabel(url, index) {
@@ -444,19 +676,48 @@ function formatVerifiedDate(value = '') {
   return match ? `${match[3]}.${match[2]}.${match[1]}` : value;
 }
 
-function openDetails(id) {
+function locationDetails(record, selectedAddress = '') {
+  if (record.type !== 'facility') return '';
+  const locations = mapLocations(record);
+  if (!locations.length) return '';
+  const precisionLabels = { building: 'здание', entrance: 'вход', address: 'адрес', approximate: 'ориентировочно' };
+  return `<section class="detail-section wide"><p>Адреса на карте</p>${locations.map(location => {
+    const url = `https://yandex.ru/maps/?pt=${encodeURIComponent(`${location.lng},${location.lat}`)}&z=17&l=map`;
+    const source = safeHttpUrl(location.source);
+    const metadata = [location.precision ? `Точность: ${precisionLabels[location.precision] || location.precision}` : '', location.verifiedAt ? `Проверено: ${formatVerifiedDate(location.verifiedAt)}` : '', location.note].filter(Boolean).join('. ');
+    return `<div>${selectedAddress === location.address ? '<strong>Выбранная точка: </strong>' : ''}<a href="${escapeHtml(url)}" target="_blank" rel="noreferrer">${escapeHtml(location.address)} ↗</a>${metadata ? `<br><small>${escapeHtml(metadata)}</small>` : ''}${source ? `<br><small><a href="${escapeHtml(source)}" target="_blank" rel="noreferrer">Источник положения ↗</a></small>` : ''}</div>`;
+  }).join('<br>')}</section>`;
+}
+
+function openDetails(id, selectedAddress = '') {
   const record = records.find(item => item.id === id);
   if (!record) return;
   selectRecord(id);
-  $('#detailsEyebrow').textContent = record.verifiedAt ? `Врач · проверено ${formatVerifiedDate(record.verifiedAt)}` : 'Врач';
+  const label = record.type === 'facility' ? record.categoryLabel : 'Врач';
+  $('#detailsEyebrow').textContent = `${record.city} · ${label}${record.verifiedAt ? ` · проверено ${formatVerifiedDate(record.verifiedAt)}` : ''}`;
   $('#detailsTitle').textContent = record.name;
   els.detailsTags.innerHTML = record.directions.map(direction => `<span>${escapeHtml(direction)}</span>`).join('');
-  els.detailsSummary.innerHTML = [
+  const summary = record.type === 'facility' ? [
+    ['Режим работы', record.hours || 'Уточнить'],
+    ['Экстренная помощь 24/7', record.emergency24h ? 'Подтверждена по указанному профилю' : 'Не подтверждена'],
+    ['Пациенты', record.patients || 'Уточнить']
+  ] : [
     ['Клиника', record.clinics || 'Не указана'],
     ['Стаж', record.experience || 'Не указан'],
     ['Пациенты', record.patients || 'Уточнить']
-  ].map(([label, value]) => `<div class="summary-item"><span>${escapeHtml(label)}</span><strong>${escapeHtml(value)}</strong></div>`).join('');
-  els.detailsContent.innerHTML = [
+  ];
+  els.detailsSummary.innerHTML = summary.map(([label, value]) => `<div class="summary-item"><span>${escapeHtml(label)}</span><strong>${escapeHtml(value)}</strong></div>`).join('');
+  const sections = record.type === 'facility' ? [
+    locationDetails(record, selectedAddress),
+    detailSection('Условия круглосуточной помощи', record.emergencyDetails || (record.emergency24h ? 'Профиль и порядок обращения уточните по телефону.' : 'Круглосуточный приём не подтверждён источниками.'), true),
+    detailSection('Специалисты', record.specialties.join('; '), true),
+    detailSection('Диагностика и анализы', record.diagnostics.join('; '), true),
+    detailSection('Адрес', record.address, true),
+    detailSection('Телефоны / назначение линий', record.phone, true),
+    detailSection('Порядок обращения', record.access, true),
+    detailSection('Примечания', record.notes, true),
+    detailSection('Часовой пояс', record.city === 'Орск' ? 'Режим указан по местному времени Орска: UTC+5 (на 2 часа больше Москвы).' : record.timezone, true)
+  ] : [
     detailSection('Специализация', record.specialty, true),
     detailSection('Ключевые направления / проблемы', record.problems, true),
     detailSection('Квалификация', record.qualification),
@@ -468,12 +729,17 @@ function openDetails(id) {
     detailSection('Телефон для записи', record.phone, true),
     detailSection('О клинике', record.clinicSummary, true),
     detailSection('Дополнительный комментарий', record.comments, true)
-  ].filter(Boolean).join('') || '<p class="details-empty">Дополнительная информация пока не добавлена.</p>';
+  ];
+  const mapLink = record.address && !isMobileService(record) && !(record.type === 'facility' && isMappable(record)) ? `<a href="https://yandex.ru/maps/?text=${encodeURIComponent(`${record.city}, ${record.address}`)}" target="_blank" rel="noreferrer">Адрес на карте ↗</a>` : '';
+  const website = safeHttpUrl(record.website);
+  const contactLinks = `<div class="detail-contact-links">${mapLink}${website ? `<a href="${escapeHtml(website)}" target="_blank" rel="noreferrer">Сайт учреждения ↗</a>` : ''}</div>`;
+  els.detailsContent.innerHTML = sections.filter(Boolean).join('') + contactLinks;
 
-  const sourceLinks = record.sources.map(safeHttpUrl).filter(Boolean);
+  const sourceLinks = record.sources.map(safeHttpUrl).filter(Boolean).filter(url => !new URL(url).pathname.startsWith('/spreadsheets/'));
   els.detailsSource.innerHTML = sourceLinks.length
     ? `<span>Источники:</span>${sourceLinks.map((url, index) => `<a href="${escapeHtml(url)}" target="_blank" rel="noreferrer">${escapeHtml(sourceLabel(url, index))} ↗</a>`).join('')}`
     : '<span>Ссылки на источники не указаны.</span>';
+  if (record._localOverride) els.detailsSource.innerHTML += '<span class="local-edit-note">Есть изменения, сохранённые в этом браузере.</span>';
 
   const call = phoneHref(record.phone);
   els.callDoctor.href = call || '#';
@@ -486,11 +752,17 @@ function openEdit(id) {
   if (!record) return;
   if (els.detailsDialog.open) els.detailsDialog.close();
   selectRecord(id);
-  $('#recordDialogEyebrow').textContent = 'Врач';
+  const facility = record.type === 'facility';
+  prepareRecordForm(facility);
+  $('#recordDialogEyebrow').textContent = facility ? record.categoryLabel : 'Врач';
   $('#recordDialogTitle').textContent = 'Редактировать карточку';
   $('#recordId').value = record.id;
   ['name', 'clinics', 'specialty', 'address', 'experience', 'patients', 'phone', 'price', 'online', 'problems', 'comments'].forEach(key => {
     $(`#${key}`).value = record[key] ?? '';
+  });
+  $('#recordCity').value = record.city;
+  if (facility) ['category', 'specialties', 'diagnostics', 'hours', 'access', 'emergency24h', 'emergencyDetails', 'website', 'notes'].forEach(key => {
+    $(`#${key}`).value = Array.isArray(record[key]) ? record[key].join('; ') : String(record[key] ?? '');
   });
   els.deleteButton.hidden = false;
   els.recordDialog.showModal();
@@ -498,11 +770,23 @@ function openEdit(id) {
 
 function openAdd() {
   els.recordForm.reset();
+  prepareRecordForm(false);
+  $('#recordCity').value = filters.city || 'Москва';
   $('#recordDialogEyebrow').textContent = 'Новый врач';
   $('#recordDialogTitle').textContent = 'Добавить специалиста';
   $('#recordId').value = '';
   els.deleteButton.hidden = true;
   els.recordDialog.showModal();
+}
+
+function prepareRecordForm(facility) {
+  $('#nameLabel').textContent = facility ? 'Название учреждения' : 'ФИО врача';
+  for (const [selector, hidden] of [['.doctor-field', facility], ['.facility-field', !facility]]) {
+    document.querySelectorAll(selector).forEach(label => {
+      label.hidden = hidden;
+      label.querySelectorAll('input, select, textarea').forEach(input => { input.disabled = hidden; });
+    });
+  }
 }
 
 function showToast(text) {
@@ -514,12 +798,43 @@ function showToast(text) {
 }
 
 function resetFilters() {
-  filters = { query: '', patient: 'all', specialties: new Set(), district: '', onlineOnly: false, sort: filters.sort };
+  filters = { query: '', city: filters.city, type: '', emergencyOnly: false, patient: 'all', specialties: new Set(), district: '', onlineOnly: false, sort: filters.sort };
   els.search.value = '';
   els.onlineOnly.checked = false;
+  els.emergencyOnly.checked = false;
   $('#patientFilters').querySelectorAll('button').forEach(button => button.classList.toggle('is-active', button.dataset.patient === 'all'));
   renderAll();
 }
+
+function centerMap() {
+  const view = CITY_VIEWS[filters.city] || { center: [53.6, 47.5], zoom: 5 };
+  if (medicalMap) {
+    medicalMap.stop();
+    const points = mapEntries(currentRecords()).map(entry => entry.point);
+    if (points.length && typeof medicalMap.fitBounds === 'function') {
+      const mobile = window.innerWidth <= 900;
+      const panel = els.resultPanel.classList.contains('is-hidden') ? { width: 0, height: 0 } : els.resultPanel.getBoundingClientRect();
+      const size = medicalMap.getSize();
+      medicalMap.fitBounds(points, {
+        animate: false, maxZoom: points.length === 1 ? 15 : 13,
+        paddingTopLeft: [24, mobile ? 78 : 90],
+        paddingBottomRight: [mobile ? 24 : Math.min(panel.width ? panel.width + 56 : 24, size.x * 0.65), mobile ? Math.min(panel.height ? panel.height + 30 : 40, size.y * 0.6) : 48]
+      });
+    } else medicalMap.setView(view.center, view.zoom, { animate: false });
+  }
+}
+
+els.city.addEventListener('change', () => {
+  filters.city = els.city.value;
+  localStorage.setItem(CITY_KEY, filters.city);
+  filters.district = '';
+  filters.specialties.clear();
+  activeId = null;
+  renderAll();
+  centerMap();
+});
+els.type.addEventListener('change', () => { filters.type = els.type.value; renderAll(); });
+els.emergencyOnly.addEventListener('change', () => { filters.emergencyOnly = els.emergencyOnly.checked; renderAll(); });
 
 $('#patientFilters').addEventListener('click', event => {
   const button = event.target.closest('button[data-patient]');
@@ -548,16 +863,17 @@ els.resultList.addEventListener('click', event => {
 });
 
 $('#leafletMap').addEventListener('click', event => {
+  const choice = event.target.closest('[data-map-choice]');
+  if (choice) {
+    medicalMap?.closePopup();
+    openDetails(choice.dataset.mapChoice, choice.dataset.address || '');
+    return;
+  }
   const marker = event.target.closest('.fallback-pin[data-id]');
-  if (marker) openDetails(marker.dataset.id);
+  if (marker) openDetails(marker.dataset.id, marker.dataset.address || '');
 });
 
 $('#addRecord').addEventListener('click', openAdd);
-$('#openSheetDialog').addEventListener('click', () => {
-  els.sheetMessage.textContent = '';
-  $('#sheetUrl').value = activeSourceUrl();
-  els.sheetDialog.showModal();
-});
 
 document.querySelectorAll('[data-close-dialog]').forEach(button => button.addEventListener('click', () => {
   $(`#${button.dataset.closeDialog}`).close();
@@ -572,11 +888,17 @@ els.recordForm.addEventListener('submit', event => {
   const index = records.findIndex(record => record.id === id);
   const previous = index >= 0 ? records[index] : null;
   const entry = { ...(previous || {}), ...Object.fromEntries(form.entries()), id };
+  if (previous?.type === 'facility' && entry.category !== previous.category) delete entry.categoryLabel;
+  if (previous?.type === 'facility' && (addressKey(entry.address) !== addressKey(previous.address) || entry.city !== previous.city)) {
+    delete entry.lat;
+    delete entry.lng;
+    delete entry.locations;
+  }
   delete entry.recordId;
   entry.number = previous?.number || String(Math.max(0, ...records.map(record => Number(record.number) || 0)) + 1);
   entry._source = previous?._source || 'local';
-  entry._localOverride = previous?._source === 'sheet' || previous?._localOverride || false;
-  const enriched = enrichRecord(entry, records.length);
+  entry._localOverride = (previous && previous._source !== 'local') || previous?._localOverride || false;
+  const enriched = supplementFacilityLocations(enrichRecord(entry, records.length), [facilitySeedById.get(entry.id)]);
   if (index >= 0) records[index] = enriched;
   else records.unshift(enriched);
   saveRecords();
@@ -589,7 +911,7 @@ els.recordForm.addEventListener('submit', event => {
 els.deleteButton.addEventListener('click', () => {
   const id = $('#recordId').value;
   const record = records.find(item => item.id === id);
-  if (record?._source === 'sheet') rememberDeletedSource(id);
+  if (record && record._source !== 'local') rememberDeletedSource(id);
   records = records.filter(item => item.id !== id);
   activeId = null;
   saveRecords();
@@ -600,19 +922,21 @@ els.deleteButton.addEventListener('click', () => {
 
 $('#closeResults').addEventListener('click', () => {
   els.resultPanel.classList.add('is-hidden');
+  $('.map-area').classList.remove('results-visible');
   $('#listToggle').classList.remove('is-selected');
 });
 
 $('#listToggle').addEventListener('click', () => {
   els.resultPanel.classList.toggle('is-hidden');
+  $('.map-area').classList.toggle('results-visible', !els.resultPanel.classList.contains('is-hidden'));
   $('#listToggle').classList.toggle('is-selected', !els.resultPanel.classList.contains('is-hidden'));
 });
 
 $('#locateButton').addEventListener('click', () => {
   activeId = null;
   render();
-  if (medicalMap) medicalMap.setView([55.753, 37.62], 10.4, { animate: true });
-  showToast('Карта центрирована на Москве');
+  centerMap();
+  showToast(filters.city ? `Карта: ${filters.city}` : 'Карта: Москва и Орск');
 });
 
 $('#openSidebar').addEventListener('click', () => $('#sidebar').classList.add('is-open'));
@@ -624,260 +948,14 @@ document.addEventListener('keydown', event => {
   }
 });
 
-function normalizeHeader(value = '') {
-  return String(value).replace(/^\uFEFF/, '').trim().toLocaleLowerCase('ru').replace(/\s+/g, ' ');
-}
-
-function googleSheetInfo(raw = '') {
-  const url = raw.trim();
-  if (!url.includes('docs.google.com/spreadsheets')) return null;
-  const id = url.match(/\/d\/([^/]+)/)?.[1];
-  if (!id) return null;
-  const isOriginalDoctorsSheet = id === SOURCE_SHEET_ID;
-  return {
-    id,
-    gid: isOriginalDoctorsSheet ? FULL_DATA_GID : (url.match(/[?#&]gid=(\d+)/)?.[1] || '0'),
-    range: isOriginalDoctorsSheet ? 'A4:R' : ''
-  };
-}
-
-function googleCsvUrl(raw) {
-  const sheet = googleSheetInfo(raw);
-  if (!sheet) return raw.trim();
-  const params = new URLSearchParams({ tqx: 'out:csv', gid: sheet.gid, headers: '1' });
-  if (sheet.range) params.set('range', sheet.range);
-  return `https://docs.google.com/spreadsheets/d/${sheet.id}/gviz/tq?${params}`;
-}
-
-function googleTableRows(payload) {
-  if (payload?.status !== 'ok' || !payload.table) throw new Error('Google Таблица вернула некорректный ответ');
-  const headers = payload.table.cols.map(column => normalizeHeader(column.label || column.id || ''));
-  return payload.table.rows.map(row => Object.fromEntries(headers.map((header, index) => {
-    const cell = row.c?.[index];
-    return [header, String(cell?.f ?? cell?.v ?? '').trim()];
-  })));
-}
-
-function loadGoogleSheet(raw) {
-  const sheet = googleSheetInfo(raw);
-  if (!sheet) return Promise.reject(new Error('Это не ссылка на Google Таблицу'));
-  return new Promise((resolve, reject) => {
-    const callbackName = `__medkarta_doctors_${Date.now()}_${Math.random().toString(36).slice(2)}`;
-    const script = document.createElement('script');
-    let settled = false;
-    const finish = (error, value) => {
-      if (settled) return;
-      settled = true;
-      clearTimeout(timer);
-      script.remove();
-      delete window[callbackName];
-      error ? reject(error) : resolve(value);
-    };
-    const timer = setTimeout(() => finish(new Error('Google Таблица не ответила вовремя')), 15000);
-    window[callbackName] = payload => {
-      try { finish(null, googleTableRows(payload)); }
-      catch (error) { finish(error); }
-    };
-    const params = new URLSearchParams({ headers: '1', gid: sheet.gid, tqx: `out:json;responseHandler:${callbackName}`, _: String(Date.now()) });
-    if (sheet.range) params.set('range', sheet.range);
-    script.src = `https://docs.google.com/spreadsheets/d/${sheet.id}/gviz/tq?${params}`;
-    script.async = true;
-    script.onerror = () => finish(new Error('Не удалось загрузить Google Таблицу'));
-    document.head.append(script);
-  });
-}
-
-async function loadCsv(raw) {
-  const csvUrl = googleCsvUrl(raw);
-  const separator = csvUrl.includes('?') ? '&' : '?';
-  const controller = typeof AbortController === 'function' ? new AbortController() : null;
-  const timeout = setTimeout(() => controller?.abort(), 10000);
-  try {
-    const request = fetch(`${csvUrl}${separator}_=${Date.now()}`, { cache: 'no-store', signal: controller?.signal });
-    const response = controller ? await request : await Promise.race([
-      request,
-      new Promise((_, reject) => setTimeout(() => reject(new Error('Источник не ответил вовремя')), 10000))
-    ]);
-    if (!response.ok) throw new Error('Не удалось получить таблицу');
-    return parseCsv(await response.text());
-  } finally {
-    clearTimeout(timeout);
-  }
-}
-
-async function loadSourceRows(raw) {
-  if (googleSheetInfo(raw)) {
-    try { return await loadGoogleSheet(raw); }
-    catch (jsonpError) {
-      try { return await loadCsv(raw); }
-      catch { throw jsonpError; }
-    }
-  }
-  return loadCsv(raw);
-}
-
-function parseCsv(input) {
-  const rows = [];
-  let row = [];
-  let cell = '';
-  let quoted = false;
-  for (let index = 0; index < input.length; index += 1) {
-    const character = input[index];
-    const next = input[index + 1];
-    if (character === '"' && quoted && next === '"') { cell += '"'; index += 1; }
-    else if (character === '"') quoted = !quoted;
-    else if (character === ',' && !quoted) { row.push(cell); cell = ''; }
-    else if ((character === '\n' || character === '\r') && !quoted) {
-      if (character === '\r' && next === '\n') index += 1;
-      row.push(cell);
-      if (row.some(value => value.trim())) rows.push(row);
-      row = [];
-      cell = '';
-    } else cell += character;
-  }
-  row.push(cell);
-  if (row.some(value => value.trim())) rows.push(row);
-  if (rows.length < 2) return [];
-  const headers = rows.shift().map(normalizeHeader);
-  return rows.map(values => Object.fromEntries(headers.map((header, index) => [header, (values[index] || '').trim()])));
-}
-
-function pick(row, ...keys) {
-  for (const key of keys) {
-    const value = row[normalizeHeader(key)];
-    if (value !== undefined && value !== '') return value;
-  }
-  return '';
-}
-
-function normalizeImported(rows) {
-  return rows.map((row, index) => {
-    const number = pick(row, '№', 'number', 'id');
-    const name = pick(row, 'ФИО врача', 'ФИО', 'name');
-    const record = {
-      id: number ? `doctor-${number}` : stableSourceId(name),
-      number,
-      name,
-      clinics: pick(row, 'Клиника(и)', 'Клиника', 'clinic', 'clinics'),
-      address: pick(row, 'Адрес / метро', 'Адрес', 'address'),
-      clinicSummary: pick(row, 'Кратко о клинике', 'clinic summary'),
-      experience: pick(row, 'Стаж', 'experience'),
-      degree: pick(row, 'Учёная степень', 'Ученая степень', 'degree'),
-      qualification: pick(row, 'Квалификация', 'qualification'),
-      specialty: pick(row, 'Специализация', 'specialty'),
-      problems: pick(row, 'Ключевые направления / проблемы', 'Ключевые направления', 'problems', 'services'),
-      achievements: pick(row, 'Достижения', 'achievements'),
-      patients: pick(row, 'Пациенты', 'patients'),
-      phone: pick(row, 'Телефон для записи', 'Телефон', 'phone'),
-      price: pick(row, 'Стоимость', 'price'),
-      online: pick(row, 'Онлайн-консультация', 'Онлайн консультация', 'online'),
-      comments: pick(row, 'Дополнительные комментарии', 'Комментарий', 'comments', 'note'),
-      sources: pick(row, 'Источники', 'sources').split(/\s*;\s*/).filter(Boolean),
-      verifiedAt: pick(row, 'Карточка', 'Проверено', 'verified at'),
-      _source: 'sheet'
-    };
-    return enrichRecord(record, index);
-  }).filter(record => record.name && record.specialty);
-}
-
-function mergeSourceRecords(imported) {
-  const deleted = deletedSourceIds();
-  const localById = new Map(records.map(record => [record.id, record]));
-  const localByName = new Map(records.map(record => [normalizeText(record.name), record]));
-  const merged = imported.filter(record => !deleted.has(record.id)).map(sourceRecord => {
-    const local = localById.get(sourceRecord.id) || localByName.get(normalizeText(sourceRecord.name));
-    return local?._localOverride
-      ? enrichRecord({ ...sourceRecord, ...local, id: sourceRecord.id, _source: 'sheet', _localOverride: true })
-      : sourceRecord;
-  });
-  const sourceIds = new Set(merged.map(record => record.id));
-  const sourceNames = new Set(merged.map(record => normalizeText(record.name)));
-  const localOnly = records.filter(record => record._source !== 'sheet' && !sourceIds.has(record.id) && !sourceNames.has(normalizeText(record.name)));
-  return [...merged, ...localOnly];
-}
-
-function activeSourceUrl() {
-  return localStorage.getItem(SOURCE_URL_KEY) || DEFAULT_SOURCE_URL;
-}
-
-function setSyncStatus(state, text) {
-  els.syncStatus.className = `sync-status is-${state}`;
-  els.syncStatus.querySelector('span').textContent = text;
-  els.syncNow.classList.toggle('is-spinning', state === 'syncing');
-  els.syncNow.disabled = state === 'syncing';
-}
-
-function formatSyncTime(timestamp) {
-  return new Intl.DateTimeFormat('ru-RU', { hour: '2-digit', minute: '2-digit' }).format(new Date(timestamp));
-}
-
-async function syncSourceSheet({ rawUrl = activeSourceUrl(), notify = false } = {}) {
-  if (syncPromise) return syncPromise;
-  setSyncStatus('syncing', 'Обновляем данные…');
-  syncPromise = (async () => {
-    const imported = normalizeImported(await loadSourceRows(rawUrl));
-    if (!imported.length) throw new Error('В таблице не нашлось карточек врачей');
-    records = mergeSourceRecords(imported);
-    saveRecords();
-    activeId = null;
-    renderAll();
-    lastSuccessfulSync = Date.now();
-    localStorage.setItem(LAST_SYNC_KEY, String(lastSuccessfulSync));
-    setSyncStatus('success', `Обновлено в ${formatSyncTime(lastSuccessfulSync)} · ${imported.length} врачей`);
-    if (notify) showToast(`Данные обновлены: ${imported.length} врачей`);
-    return imported.length;
-  })();
-  try {
-    return await syncPromise;
-  } catch (error) {
-    const fallback = lastSuccessfulSync
-      ? `Последнее обновление в ${formatSyncTime(lastSuccessfulSync)}`
-      : `Встроенные данные · ${records.length} врачей`;
-    setSyncStatus('error', fallback);
-    throw error;
-  } finally {
-    syncPromise = null;
-  }
-}
-
-els.sheetForm.addEventListener('submit', async event => {
-  event.preventDefault();
-  const raw = $('#sheetUrl').value.trim();
-  if (!raw) {
-    els.sheetMessage.textContent = 'Вставьте ссылку на таблицу или CSV.';
-    return;
-  }
-  const button = $('#importSheet');
-  button.disabled = true;
-  button.textContent = 'Загружаем…';
-  els.sheetMessage.textContent = '';
-  try {
-    await syncSourceSheet({ rawUrl: raw, notify: true });
-    localStorage.setItem(SOURCE_URL_KEY, raw);
-    els.sheetDialog.close();
-  } catch (error) {
-    els.sheetMessage.textContent = `${error.message}. Проверьте доступ по ссылке и заголовки колонок.`;
-  } finally {
-    button.disabled = false;
-    button.textContent = 'Загрузить данные';
-  }
-});
-
-els.syncNow.addEventListener('click', () => syncSourceSheet({ notify: true }).catch(error => showToast(error.message)));
 
 initializeMap();
 renderAll();
-$('#sheetUrl').value = activeSourceUrl();
-if (lastSuccessfulSync) setSyncStatus('success', `Последнее обновление в ${formatSyncTime(lastSuccessfulSync)}`);
-syncSourceSheet().catch(() => {});
-setInterval(() => syncSourceSheet().catch(() => {}), SYNC_INTERVAL_MS);
-document.addEventListener('visibilitychange', () => {
-  if (!document.hidden && Date.now() - lastSuccessfulSync > 60000) syncSourceSheet().catch(() => {});
-});
+centerMap();
 
 window.__MEDKARTA_DOCTORS__ = {
   get records() { return records; },
   get filters() { return filters; },
-  sync: syncSourceSheet,
+  snapshot: true,
   resetFilters
 };
